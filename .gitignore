@@ -1,0 +1,15 @@
+# Build output
+build/
+*.uf2
+*.elf
+*.bin
+*.hex
+*.map
+*.dis
+
+# VS Code / extension local state
+.vscode/
+compile_commands.json
+
+# OS junk
+.DS_Store
