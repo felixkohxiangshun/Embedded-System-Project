@@ -25,11 +25,11 @@ WiFi/MQTT.
 
 | Member | Name      | Role                          | Primary Files |
 |--------|-----------|-------------------------------|----------------|
-| M1     | Dave      | Motor / PID Control            | `motor/` |
-| M2     | Vania     | Line Tracking & Barcode        | `line_tracking/`, `barcode/` |
-| M3     | Sook Yee  | IMU / Terrain Monitoring       | `imu_terrain/` |
-| M4     | Felix     | Obstacle Avoidance, Mission State, Telemetry | `obstacle_scan/`, `mission_state/`, `telemetry/` |
-| M5     | Jun Kai   | WiFi / MQTT                    | `wifi_mqtt/` |
+| M1     | Jun Kai   | WiFi / MQTT                    | `wifi_mqtt/` |
+| M2     | Dave      | Motor / PID Control            | `motor/` |
+| M3     | Vania     | Line Tracking & Barcode        | `line_tracking/`, `barcode/` |
+| M4     | Sook Yee  | IMU / Terrain Monitoring       | `imu_terrain/` |
+| M5     | Felix     | Obstacle Avoidance, Mission State, Telemetry | `obstacle_scan/`, `mission_state/`, `telemetry/` |
 
 ---
 
