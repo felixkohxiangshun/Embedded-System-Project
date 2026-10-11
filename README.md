@@ -163,13 +163,5 @@ subsystems in `testing/integration/` and `testing/system/`. How to write a test 
 * Task priorities are 12 to 16 because the kernel uses 1 to 4. Do not change them without
   agreement from the team.
 
-## Known gaps
-
-* Nothing has run on the board yet. Calibrate your own `[CAL]` constants (`motor_ctrl.h`,
-  `line_ctrl.h`, `drv_ir.c`, `imu_logic.h`, `scan_logic.h`, `drv_ultra.c`).
-* The MQTT bridge needs a change in the kernel library file `mqtt_utk.c`. It touches shared
-  code, so agree it with the team and the instructor first.
-* The heading in the telemetry is estimated from the wheel encoders and will drift.
-
 ---
 
