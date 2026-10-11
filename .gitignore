@@ -1,15 +1,35 @@
-# Build output
-build/
-*.uf2
-*.elf
-*.bin
-*.hex
-*.map
-*.dis
+﻿Debug
+Release
 
-# VS Code / extension local state
+# Build artifacts
+*.elf
+*.uf2
+*.map
+*.o
+*.d
+build_make/tools/elf2uf2
+tools/elf2uf2/elf2uf2
+build_make/.build_profile
+
+# Real WiFi credentials -- never commit these. Copy config/wifi_secrets.example.h
+# to config/wifi_secrets.h and fill in your own network's SSID/password.
+config/wifi_secrets.h
+
+# Videos are shared as unlisted YouTube links (videos/README.md), never committed
+*.mp4
+*.mov
+*.webm
+*.avi
+*.mkv
+
+# macOS
+.DS_Store
+
+# Local tooling (from the original repo)
+build/
 .vscode/
 compile_commands.json
-
-# OS junk
-.DS_Store
+*.bin
+*.hex
+*.dis
+testing/host/host_tests
