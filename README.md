@@ -1,152 +1,175 @@
-# Robo Pico car — INF2004 Group 11
+# Robo Pico Car: INF2004 Group 11
 
-Autonomous line-following car on the **Raspberry Pi Pico W + Robo Pico**, written in
-**C** with the **Pico C SDK**, running on the **micro T-Kernel 3.0 RTOS** (TRON Forum).
-It starts from the INF2004 project template
-(<https://github.com/sirfonzie/INF2004_ProjectTemplate>); the design is the final
-**Week 6 Design Review**.
+The aim of this project is to build an autonomous line-following car. It follows a
+black line, reads Code 39 barcodes (A to D) to execute commands (left/right turn, uturn), measures hump
+height, detects shocks, detects obstacle and perform obstacle avoidance, and reports to an online dashboard.
 
-There is no FreeRTOS anywhere: tasks, message buffers, the event flag, the mutex,
-cyclic handlers and the interrupt handler are all micro T-Kernel objects
-(`tk_cre_tsk`, `tk_cre_mbf`, `tk_cre_flg`, `tk_cre_mtx`, `tk_cre_cyc`, `tk_def_int`).
+## Tech stack
 
-> **Status:** builds cleanly in four configurations and the pure logic passes 80
-> PC unit tests. It has **not been run on the board yet**. Every constant marked
-> `[CAL]` in the source is a placeholder to measure on the real car.
+| Layer | What we use |
+|---|---|
+| Language | C (the requirements ask for C99 and Barr-C; the build uses `gnu11` and currently compiles without warnings) |
+| RTOS | **micro T-Kernel 3.0**, dual-core RP2040 port |
+| SDK | Raspberry Pi **Pico C SDK** 2.2.0 (USB and WiFi driver source) |
+| Compiler | Arm GNU Toolchain, `arm-none-eabi-gcc` |
+| Build | GNU `make` (`build_make/`), output is a `.uf2` file |
+| Microcontroller | Raspberry Pi **Pico W** (RP2040, CYW43439 WiFi) on a Cytron **Robo Pico** |
+| Communication | WiFi + MQTT (QoS 0 telemetry, QoS 1 commands) |
+| Tests | Unit tests on a PC (`testing/host`), on-target self-tests (`make TEST=1`), manual test logs |
 
-## Who does what
+### Hardware
 
-Group 11, SIT INF2004 Embedded Systems. One folder per subsystem; the owner is the
-only person who edits it (shared files are changed by team agreement). Details,
-pins and interfaces are in [TEAM.md](TEAM.md).
+| Part | Used for | Pins |
+|---|---|---|
+| 2 DC motors with quadrature encoders | driving and speed feedback | motors GP8 to GP11, encoders GP2, GP3, GP6, GP7 |
+| 3 IR sensors | left and centre follow the line, right reads barcodes | GP26, GP27, GP28 (ADC) |
+| LSM303DLHC IMU | hump height and shock | GP4 (SDA), GP5 (SCL) |
+| HC-SR04 ultrasonic sensor on a servo | obstacle detection and profiling | echo GP16, trigger GP17, servo GP12 |
+| Start/stop button, status LED | operator control | GP20, GP18 |
 
-| Subsystem (folder) | Owner | What it does | Tasks | Design review |
-|---|---|---|---|---|
-| `motor_control/` | Tan Kun Yi Dave (2502730) | PID speed loop, wheel encoders, drift trim, 90°/180° turns, bypass path, start button | `motor_task` | 6.3, FR-11..13, NFR-14, 15 |
-| `line_barcode/` | Vania Teng (2503206) | 1 kHz IR sampler, PD line following, Code 39 barcode decoding (A–D) | `line_task`, `barcode_task` | 6.1, FR-01..03, NFR-03..05 |
-| `imu_terrain/` | Lau Sook Yee (2503178) | LSM303DLHC hump height, tallest hump, shock detection, sensor fault retry | `imu_task` | 6.2, FR-04..06, NFR-06, 07 |
-| `dashboard/` | Wong Jun Kai (2500258) | Telemetry frame every 500 ms, WiFi/MQTT status, telemetry JSON ≤ 512 B, heartbeat, E_STOP/RESUME commands | `dashboard_task`, `telemetry_task` | 6.5, FR-14..18, NFR-12, 13 |
-| `mission_obstacle/` | Felix Koh (2500256) | System statechart, ultrasonic + servo obstacle scan, bypass decision, integration | `mission_task`, `scan_task` | 5, 6.4, FR-07..10, 17, 19, NFR-08..11 |
+The full pin table, with owners, is in [TEAM.md](TEAM.md). 
 
-## Layout
+## Team and roles
 
-```
-app_program/              the car (app_main.c starts every subsystem)
-  app.h  app_if.h           shared: pins, priorities, message formats, kernel object IDs
-  motor_control/            Dave
-  line_barcode/             Vania
-  imu_terrain/              Sook Yee
-  dashboard/                Jun Kai
-  mission_obstacle/         Felix
-config/                   kernel limits (config.h) and device switches (config_device.h)
-kernel/ lib/ include/ device/ etc/   micro T-Kernel and drivers: template code, not ours
-build_make/               the make-based build
-testing/                  one TEST_LOG.md per subsystem, plus integration and system; host/ = PC tests
-TEAM.md                   owners, pins, peripherals, priorities, interfaces, object budget
-docs/                     the template's original README (toolchain set-up)
-```
-
-Inside each subsystem folder: `<name>.c/.h` create the kernel objects and start the
-tasks, `task_*.c` are the tasks, `drv_*.c` touch the hardware, and `*_logic.c` /
-`*_ctrl.c` hold the pure logic that is tested on a PC.
-
-## Tasks and how they talk
-
-Eight tasks, one interrupt, five handlers (design review sections 3 and 4):
-
-| Task | Priority | Trigger | Subsystem |
+| Member | Student ID | Subsystem (folder) | Responsible for |
 |---|---|---|---|
-| `motor_task` | 12 | cyclic 10 ms | motor_control |
-| `line_task` | 13 | cyclic 10 ms | line_barcode |
-| `mission_task` | 14 | polls inputs every 5 ms | mission_obstacle |
-| `barcode_task`, `imu_task`, `scan_task` | 15 | `mbf_edge` / cyclic 10 ms / ping timer | line_barcode, imu_terrain, mission_obstacle |
-| `telemetry_task`, `dashboard_task` | 16 | 500 ms / 100 ms | dashboard |
+| Tan Kun Yi Dave | 2502730 | Motor control (`app_program/motor_control/`) | PID speed control, wheel encoders, drift correction, 90° and 180° turns, start button |
+| Vania Teng | 2503206 | Line following and barcode (`app_program/line_barcode/`) | three IR sensors, 1 kHz sampler, line following, barcode decoding |
+| Lau Sook Yee | 2503178 | IMU and terrain (`app_program/imu_terrain/`) | hump height, tallest hump, shock detection |
+| Wong Jun Kai | 2500258 | Dashboard and telemetry (`app_program/dashboard/`) | telemetry frame every 500 ms, WiFi and MQTT status, JSON, heartbeat, remote E_STOP and RESUME |
+| Felix Koh | 2500256 | Mission and obstacle avoidance (`app_program/mission_obstacle/`) | system state machine, ultrasonic and servo obstacle scan, bypass, system integration |
 
-Priority 1 is the highest and 1–4 belong to the kernel, so the review's ranks 1–5
-become 12–16. Tasks never call each other; they use message buffers `mbf_steer`,
-`mbf_edge`, `mbf_bccmd`, `mbf_terrain`, `mbf_obs`, `mbf_scancmd`, `mbf_mqttcmd`,
-`mbf_nav`, `mbf_telem`, the event flag `flg_evt` (START / STOP / RESUME / BTN) and the
-mutex-protected `app_state`. Formats are in `app_program/app_if.h`; the full table
-is TEAM.md section 5.
+Each subsystem has its own folder and its own test log in `testing/<folder>/TEST_LOG.md`.
+Only the owner edits their folder. Shared files (`app_program/app.h`, `app_if.h`,
+`app_main.c`, `config/`, `TEAM.md`) are changed by agreement of the team.
+Priorities, interfaces and the full task list are in [TEAM.md](TEAM.md).
 
-## Build and flash
+## Repository layout
 
-Toolchain and Pico SDK set-up: `docs/TEMPLATE_README.md` section 1. Then:
+```
+app_program/        our firmware: start with app_main.c
+  motor_control/      Dave
+  line_barcode/       Vania
+  imu_terrain/        Sook Yee
+  dashboard/          Jun Kai
+  mission_obstacle/   Felix
+  app.h  app_if.h     shared pins, priorities, message formats
+config/             kernel limits and device switches
+build_make/         the make build
+testing/            test logs per subsystem, plus integration, system and PC tests
+docs/               the template's original guide (toolchain set-up in detail)
+kernel/ lib/ include/ device/ etc/   micro T-Kernel and its drivers (template code, do not edit)
+TEAM.md             owners, pins, peripherals, task priorities, interfaces
+```
+
+Inside each subsystem folder: `<name>.c/.h` create its kernel objects and start its tasks,
+`task_*.c` are the tasks, `drv_*.c` touch the hardware, `*_logic.c` and `*_ctrl.c` hold the
+logic that is tested on a PC, and `<name>_test.c` holds the on-target tests.
+
+## Getting started
+
+You need a Raspberry Pi Pico W, a USB cable, and macOS, Linux, or Windows with WSL
+(Ubuntu). On Windows, run every command inside the WSL terminal.
+
+### 1. Install the tools
 
 ```sh
-export PICO_SDK_PATH=/path/to/pico-sdk          # not needed for CONSOLE=uart WIFI=none
-cd build_make
-make -j8                                        # default: dual core, USB console, WiFi radio
-make SMP=0 -j8                                  # single core: recommended for first bring-up
-make TEST=1 -j8                                 # adds the on-target self-tests
-make CONSOLE=uart WIFI=none SMP=0 -j8           # no SDK needed (compile check)
+# macOS
+xcode-select --install
+# Linux / WSL (Ubuntu)
+sudo apt update && sudo apt install -y git make g++ gcc-arm-none-eabi
+
+# Pico C SDK (with the USB and WiFi driver submodules)
+mkdir -p ~/pico && cd ~/pico
+git clone --branch 2.2.0 https://github.com/raspberrypi/pico-sdk.git
+cd pico-sdk && git submodule update --init lib/tinyusb lib/cyw43-driver
 ```
 
-Hold BOOTSEL, plug in the Pico, and copy the `.uf2` (named after the options, e.g.
-`mtk3pico_smp1_usb_cdc_wifi.uf2`) to the `RPI-RP2` drive. The console is 115200 8N1 on
-the USB serial port. For MQTT also see `docs/TEMPLATE_README.md` section 3
-(`NET=lwip MQTT=1` and `config/wifi_secrets.h`).
+On macOS, install the Arm GNU Toolchain (AArch32 bare-metal, `arm-none-eabi`) from
+<https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads>. Then add both
+paths to `~/.zshrc` or `~/.bashrc` (change them to match your machine):
 
-## Tests
+```sh
+export PATH="$HOME/tools/arm-gnu-toolchain-<version>/bin:$PATH"
+export PICO_SDK_PATH="$HOME/pico/pico-sdk"
+```
 
-* `cd testing/host && make run`: 80 checks of the logic on a PC.
-* `make TEST=1` and read the console for `[TEST] ... PASS/FAIL`.
-* Manual and integration tests: `testing/*/TEST_LOG.md`.
+Open a new terminal and check that `arm-none-eabi-gcc --version` works.
+More detail: [docs/TEMPLATE_README.md](docs/TEMPLATE_README.md), section 1.
 
-## Configuration changes from the template
+### 2. Clone and build
 
-| File | Change | Why |
+```sh
+git clone https://github.com/felixkohxiangshun/Embedded-System-Project.git
+cd Embedded-System-Project/build_make
+make -j8
+```
+
+The firmware is `build_make/mtk3pico_smp1_usb_cdc_wifi.uf2`. For the first bring-up on the
+car, build single-core with `make SMP=0 -j8`.
+
+| Option | Values (default first) | Meaning |
 |---|---|---|
-| `config/config.h` | `CNF_TIMER_PERIOD` 10 → 1 | 1 kHz barcode sampler (NFR-04) |
-| `config/config.h` | `CNF_MAX_MBFID` 12 → 24 | 11 message buffers plus the device drivers' own |
-| `config/config_device.h` | `DEVCNF_USE_ADC` 1 → 0 | the IR sampler owns the ADC |
-| `config/config_device.h` | `DEVCNF_USE_IIC` 0 → 1 | IMU on I2C0 |
-| `device/i2c/.../i2c_cnf_sysdep.h` | I2C0 pins GP8/GP9 → GP4/GP5 | pin layout of the design review |
+| `SMP` | `1`, `0` | `1` uses both RP2040 cores, `0` core 0 only |
+| `CONSOLE` | `usb_cdc`, `uart` | where `tm_printf` output goes: USB, or UART0 on GP0/GP1 |
+| `WIFI` | `cyw43`, `none` | turn the Pico W radio on or off |
+| `TEST` | `0`, `1` | `1` adds the on-target self-tests, run at power-up |
+| `CRASH_REPORT` | `0`, `1` | also copies the console to UART0 (uses GP0/GP1) |
 
-## Open items
+Options go after `make` and are part of the file name, for example
+`mtk3pico_smp0_usb_cdc_wifi_test.uf2`. `make CONSOLE=uart WIFI=none -j8` needs no Pico SDK,
+so it is a quick way to check that the code compiles.
 
-1. **Hardware bring-up.** Nothing has run on the board. Each owner calibrates the
-   `[CAL]` constants of their own subsystem: Dave `motor_ctrl.h` (PID gains, wheel,
-   encoder and track constants), Vania `line_ctrl.h` and `drv_ir.c` (white/black
-   levels, gains, barcode thresholds), Sook Yee `imu_logic.h` (hump and shock
-   thresholds, height factor), Felix `scan_logic.h` and `drv_ultra.c` (sweep timing,
-   clearances).
-2. **MQTT bridge (IF-12).** The Dashboard exchanges strings with the MQTT client through
-   two message buffers, but the matching read/write inside the kernel's `mqtt_utk.c` is
-   not written. It edits shared library code, so agree it with the team and the
-   instructor first. Until then telemetry JSON is printed on the console.
-3. **Design review differences to fix in the report** (the code follows the template and
-   the kernel rules where they differ):
-   * priority numbers 1–5 become 12–16 (kernel owns 1–4);
-   * the 1 kHz handler samples all three IR sensors, not only the barcode one (one ADC);
-   * Mission reads Motor's progress through `app_state` (a completion path the diagram lacked);
-   * Mission polls its inputs every 5 ms because a task cannot wait on several message buffers;
-   * the steering path Line → Mission → Motor adds up to one Mission period of delay (INT-04
-     measures it; if it is too slow, send steering straight to Motor).
-   Aligned with the final review, so the code now follows these (no report change needed):
-   INIT waits for WiFi and MQTT but gives up after 20 s so the car still runs without a
-   dashboard; FAULT_RECOVERY returns to IDLE (no restart without BTN_START); a bypass over
-   5 s is flagged late, never aborted; telemetry has a `heading` (dead-reckoned from the
-   encoders, so it drifts and needs the track width calibrated).
-4. **SMP.** The template defaults to dual core (`SMP=1`); the code is written to work either
-   way, but the design review's single-core note is not enforced. Decide, and note it in the report.
-5. **Hump height** from vertical acceleration is a weak estimate (S3-M02 tests ±5 mm).
-6. **FR-11 target speed** reads "1–2 cm/s", which looks like a typo; 12 cm/s is used.
-7. **HC-SR04 ECHO is 5 V**; fit a divider before connecting it to GP16.
-8. **Pin table typo:** the review lists the encoder rows under the opposite motor
-   (`ENC_LEFT` under "Right Motor"); the code takes GP2/GP3 as left and GP6/GP7 as right.
-   Swap them in `app.h` if the wiring is the other way round.
+### 3. Flash and watch the output
 
-## Requirements coverage
+1. Hold **BOOTSEL**, plug the Pico W into USB, release. A drive called `RPI-RP2` appears.
+2. Copy the `.uf2` file onto that drive. The Pico reboots by itself.
+3. Open the serial console at 115200 baud:
 
-| Requirement | Where |
-|---|---|
-| FR-01 line following | `line_barcode/task_line.c`, `line_ctrl.c` |
-| FR-02, FR-03 barcode | `line_barcode/task_barcode.c`, `barcode_decode.c`; command in `mission_obstacle/mission_logic.c` |
-| FR-04..FR-06 hump, shock | `imu_terrain/imu_logic.c`, `task_imu.c` |
-| FR-07..FR-10 obstacle | `mission_obstacle/task_scan.c`, `scan_logic.c`, `mission_logic.c`; bypass in `motor_control/task_motor.c` |
-| FR-11..FR-13 speed, distance, drift | `motor_control/task_motor.c`, `motor_ctrl.c` |
-| FR-14..FR-18 WiFi, MQTT, telemetry | `dashboard/` (bridge pending), `dashboard/task_telemetry.c` |
-| FR-19 recovery | FAULT_RECOVERY in `mission_logic.c`; IMU and encoder fault paths |
-| NFR-03, NFR-04, NFR-06, NFR-14 timing | cyclic handlers (10 ms, 1 ms) and S1-U07, S2-U09, S2-U10, S3-U07 |
-| NFR-12, NFR-13 MQTT QoS, ≤ 512 bytes | `dashboard/dash_logic.c` (QoS is set by the MQTT client: pending IF-12) |
+```sh
+screen /dev/tty.usbmodem* 115200     # macOS (quit: Ctrl-A then K)
+screen /dev/ttyACM0 115200           # Linux
+```
+
+On Windows use PuTTY or the VS Code Serial Monitor. Press the start button (GP20) to
+start the car and press it again to stop. The status LED blinks slowly when idle.
+
+### 4. Dashboard (WiFi and MQTT)
+
+For the online dashboard build with `NET=lwip MQTT=1` and copy
+`config/wifi_secrets.example.h` to `config/wifi_secrets.h`, then enter your network
+details. That file is ignored by git, so never commit it. The link between the dashboard
+task and the MQTT client is not finished yet (see below). Until then the telemetry JSON
+is printed on the console instead.
+
+## Testing
+
+```sh
+cd testing/host && make run        # 80 checks of the logic, on your computer
+cd build_make && make TEST=1 -j8   # on-target tests: read the console for [TEST] ... PASS/FAIL
+```
+
+Record every test run in the owner's `testing/<folder>/TEST_LOG.md`, and tests that cross
+subsystems in `testing/integration/` and `testing/system/`. How to write a test is in
+[testing/README.md](testing/README.md).
+
+## Working on the project
+
+* Work in your own subsystem folder and keep the build free of compiler warnings (NFR-01).
+* Claim pins and interfaces in [TEAM.md](TEAM.md) before you use them. Avoid GP23, GP24,
+  GP25 and GP29 (Pico W radio). GP0 and GP1 are free unless you build with `CRASH_REPORT=1`.
+* Commit small changes, pull before you push, and ask the owner before editing someone
+  else's folder.
+* Task priorities are 12 to 16 because the kernel uses 1 to 4. Do not change them without
+  agreement from the team.
+
+## Known gaps
+
+* Nothing has run on the board yet. Calibrate your own `[CAL]` constants (`motor_ctrl.h`,
+  `line_ctrl.h`, `drv_ir.c`, `imu_logic.h`, `scan_logic.h`, `drv_ultra.c`).
+* The MQTT bridge needs a change in the kernel library file `mqtt_utk.c`. It touches shared
+  code, so agree it with the team and the instructor first.
+* The heading in the telemetry is estimated from the wheel encoders and will drift.
+
+---
+
