@@ -38,4 +38,27 @@ IMPORT BOOL scan_evaluate(const INT d_mm[SCAN_ANGLES], SCAN_RESULT *r);
 /* Servo angle (degrees, - = left) for sweep step 0..4 */
 IMPORT INT  scan_angle_deg(INT step);
 
+/* ---- Echo pulse capture (HC-SR04 ECHO, filled by the GPIO interrupt) -------
+ * Written by the interrupt (echo_edge) and read by scan_task once the event
+ * flag says the pulse is complete, so the 32-bit fields are never read half
+ * written.  scan_task arms it before the trigger pulse; a rising edge stores
+ * the time, the next falling edge completes the width and disarms, so late or
+ * stale edges from an earlier ping are ignored.  No kernel calls here. */
+#define ECHO_MAX_US		12000	/* about 2 m; a longer pulse means "no object" */
+
+typedef struct {
+	volatile UB	armed;		/* 1 = accepting edges */
+	volatile UB	have_rise;	/* 1 = rising edge seen, waiting for the fall */
+	volatile UW	t_rise;		/* APP_NOW_US() at the rising edge */
+	volatile UW	width_us;	/* valid once echo_edge() returned TRUE */
+} ECHO;
+
+IMPORT void echo_arm(ECHO *e);
+IMPORT void echo_disarm(ECHO *e);
+/* Feed one interrupt: now_us from the 1 MHz timer, edges = ECHO_EDGE_xxx bits.
+   Returns TRUE when the pulse is complete (width_us is valid). */
+IMPORT BOOL echo_edge(ECHO *e, UW now_us, UW edges);
+/* Pulse width -> mm, or SCAN_NO_ECHO for 0 or longer than ECHO_MAX_US */
+IMPORT INT  echo_us_to_mm(UW width_us);
+
 #endif /* SCAN_LOGIC_H */

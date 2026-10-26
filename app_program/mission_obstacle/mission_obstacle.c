@@ -18,6 +18,7 @@ EXPORT APP_STATE app_state;
 
 EXPORT ID	tid_mission;
 EXPORT ID	tid_scan;
+EXPORT ID	flg_echo;	/* echo ISR -> scan_task (private to this subsystem) */
 
 /* Lock the shared state.  The mutex uses priority inheritance (TA_INHERIT):
    if a low-priority task such as Telemetry holds it while Motor wants it,
@@ -56,6 +57,11 @@ EXPORT ER mission_obstacle_init(void)
 	if (er < E_OK) return er;
 	er = make_mbf(&mbf_mqttcmd, (INT)sizeof(MSG_MQTTCMD),  4);
 	if (er < E_OK) return er;
+
+	flg_echo = app_make_flg();
+	if (flg_echo < E_OK) {
+		return flg_echo;
+	}
 
 	cmtx.mtxatr = TA_INHERIT;
 	mtx_state = tk_cre_mtx(&cmtx);

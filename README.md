@@ -10,8 +10,8 @@ height, detects shocks, detects obstacle and perform obstacle avoidance, and rep
 |---|---|
 | Language | C (the requirements ask for C99 and Barr-C; the build uses `gnu11` and currently compiles without warnings) |
 | RTOS | **micro T-Kernel 3.0**, dual-core RP2040 port |
-| SDK | Raspberry Pi **Pico C SDK** 2.2.0 (USB and WiFi driver source) |
-| Compiler | Arm GNU Toolchain, `arm-none-eabi-gcc` |
+| SDK | Raspberry Pi **Pico C SDK** 2.2.0 or newer (USB and WiFi driver source; 2.3.0 also builds without warnings) |
+| Compiler | Arm GNU Toolchain, `arm-none-eabi-gcc` (tested with 15.3.Rel1) |
 | Build | GNU `make` (`build_make/`), output is a `.uf2` file |
 | Microcontroller | Raspberry Pi **Pico W** (RP2040, CYW43439 WiFi) on a Cytron **Robo Pico** |
 | Communication | WiFi + MQTT (QoS 0 telemetry, QoS 1 commands) |
@@ -85,6 +85,9 @@ git clone --branch 2.2.0 https://github.com/raspberrypi/pico-sdk.git
 cd pico-sdk && git submodule update --init lib/tinyusb lib/cyw43-driver
 ```
 
+If you already have SDK 2.3.0 installed you can keep it: every build option below
+compiles with it, with no warnings.
+
 On macOS, install the Arm GNU Toolchain (AArch32 bare-metal, `arm-none-eabi`) from
 <https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads>. Then add both
 paths to `~/.zshrc` or `~/.bashrc` (change them to match your machine):
@@ -138,14 +141,15 @@ start the car and press it again to stop. The status LED blinks slowly when idle
 
 For the online dashboard build with `NET=lwip MQTT=1` and copy
 `config/wifi_secrets.example.h` to `config/wifi_secrets.h`, then enter your network
-details. That file is ignored by git, so never commit it. The link between the dashboard
+details. That file is ignored by git, so never commit it. Without it the build stops with
+`fatal error: wifi_secrets.h: No such file or directory`. The link between the dashboard
 task and the MQTT client is not finished yet (see below). Until then the telemetry JSON
 is printed on the console instead.
 
 ## Testing
 
 ```sh
-cd testing/host && make run        # 80 checks of the logic, on your computer
+cd testing/host && make run        # 86 checks of the logic, on your computer
 cd build_make && make TEST=1 -j8   # on-target tests: read the console for [TEST] ... PASS/FAIL
 ```
 
@@ -160,7 +164,7 @@ subsystems in `testing/integration/` and `testing/system/`. How to write a test 
   GP25 and GP29 (Pico W radio). GP0 and GP1 are free unless you build with `CRASH_REPORT=1`.
 * Commit small changes, pull before you push, and ask the owner before editing someone
   else's folder.
-* Task priorities are 12 to 16 because the kernel uses 1 to 4. Do not change them without
+* Task priorities are 12 to 19 (one level per task) because the kernel uses 1 to 4. Do not change them without
   agreement from the team.
 
 ---

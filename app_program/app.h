@@ -52,20 +52,25 @@
  *      review "Highest (1)"  -> 12   Motor
  *      review "High (2)"     -> 13   Line Tracking
  *      review "Medium (3)"   -> 14   Mission
- *      review "Medium (4)"   -> 15   IMU, Obstacle Scan, Barcode
- *      review "Low (5)"      -> 16   Telemetry, Dashboard
+ *      review "Medium (4)"   -> 15   IMU          (10 ms)
+ *                               16   Barcode      (event, drains mbf_edge)
+ *                               17   Obstacle Scan (60 ms)
+ *      review "Low (5)"      -> 18   Telemetry    (500 ms)
+ *                               19   Dashboard
  *
- *  Tasks of equal priority run in the order they became ready; every
- *  application task blocks at least once per cycle.
+ *  Every task has its own level (Tribunal 1): the kernel does not
+ *  time-slice tasks of equal priority, so a tie would let one task hold
+ *  the CPU until it blocks.  Inside one review rank the shorter period
+ *  goes first (rate monotonic).  TEAM.md section 4 has the full table.
  * --------------------------------------------------------------------- */
 #define PRI_MOTOR		12
 #define PRI_LINE		13
 #define PRI_MISSION		14
-#define PRI_BARCODE		15
 #define PRI_IMU			15
-#define PRI_SCAN		15
-#define PRI_TELEMETRY		16
-#define PRI_DASHBOARD		16
+#define PRI_BARCODE		16
+#define PRI_SCAN		17
+#define PRI_TELEMETRY		18
+#define PRI_DASHBOARD		19
 
 #define TASK_STACK_SIZE		2048	/* bytes; tm_printf needs ~1 KB */
 
@@ -106,6 +111,15 @@ IMPORT void imu_terrain_test(void);
 IMPORT void dashboard_test(void);
 IMPORT void mission_obstacle_test(void);
 #endif
+
+/* GPIO bank 0 hook.  The RP2040 has ONE interrupt line for all of bank 0, owned
+   by motor_control/gpio_isr.c (encoders, button).  That handler calls this
+   function for the ultrasonic ECHO pin (GP16); it is defined in
+   mission_obstacle/drv_ultra.c.  Runs in interrupt context: no blocking
+   calls.  now_us = APP_NOW_US() taken at handler entry; edges = ECHO_EDGE_xxx. */
+#define ECHO_EDGE_RISE		0x1
+#define ECHO_EDGE_FALL		0x2
+IMPORT void ultra_echo_isr(UW now_us, UW edges);
 
 /* Print a readable message if a kernel call failed (negative error code) */
 #define CHECK(er, what)							\

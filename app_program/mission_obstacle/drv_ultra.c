@@ -11,10 +11,14 @@
  *	          *** 5 V tolerant: use a resistor divider (e.g. 1k / 2k) or a
  *	          *** level shifter on ECHO before connecting it.
  *
- *	The echo is timed by polling the 1 MHz hardware timer.  Higher-priority
- *	tasks and the 1 ms handlers can interrupt the poll, which adds a small
- *	error (tens of microseconds = a few millimetres).  Scan runs below
- *	Motor, Line and Mission on purpose, so its poll never delays them.
+ *	The echo is timed by the GPIO interrupt, not by polling (Tribunal 1: a
+ *	busy-wait of up to ~17 ms per ping would starve the 10 ms IMU task).
+ *	scan_task pulses TRIG, then BLOCKS on flg_echo with a 30 ms timeout.  The
+ *	bank-0 GPIO interrupt (motor_control/gpio_isr.c, the only handler for that
+ *	interrupt line) calls ultra_echo_isr() on each ECHO edge; that stamps the
+ *	1 MHz timer and, on the falling edge, sets flg_echo.  A timeout means no
+ *	object in range.  Only the 10 us TRIG pulse is still a busy-wait.
+ *	The capture logic is pure and unit-tested on a PC (echo_edge, scan_logic.c).
  *
  *	Servo:    PWM slice 6, channel A (GP12), 50 Hz.  The slice divider is set
  *	          to 125, so one count is 1 us (125 MHz clock assumed) and the CC
@@ -23,18 +27,35 @@
 
 #include "mission_obstacle.h"
 
-#define ECHO_RISE_TIMEOUT_US	5000
-#define ECHO_FALL_TIMEOUT_US	12000		/* about 2 m */
+/* IO_BANK0 register 2 covers pins 16..23 (ECHO is GP16); see gpio_isr.c for the layout */
+#define IO_INTR2		(IO_BANK0_BASE + 0x0F0 + 4 * 2)
+#define IO_PROC0_INTE2		(IO_BANK0_BASE + 0x100 + 4 * 2)
+#define ECHO_EDGE_BITS		(0xCu << (4 * (PIN_ULTRA_ECHO & 7)))	/* edge low | edge high */
 #define SERVO_SLICE		6
 #define SERVO_TOP		19999		/* 20 ms period at 1 MHz */
 #define SERVO_CENTER_US		1500
 #define SERVO_SLICE_DIV		(PWM_BASE + 0x14 * SERVO_SLICE + PWM_CHx_DIV)
 
+LOCAL ECHO echo;		/* shared by the interrupt and scan_task */
+
+/* Called from the bank-0 GPIO interrupt (gpio_isr.c).  Never blocks. */
+EXPORT void ultra_echo_isr(UW now_us, UW edges)
+{
+	if (echo_edge(&echo, now_us, edges)) {
+		tk_set_flg(flg_echo, ECHO_FLG_DONE);
+	}
+}
+
+/* Must run after motor_control_start(), which installs the bank-0 handler. */
 EXPORT void ultra_hw_init(void)
 {
 	gpio_set_pin(PIN_ULTRA_TRIG, GPIO_MODE_OUT);
 	gpio_set_val(PIN_ULTRA_TRIG, 0);
 	gpio_set_pin(PIN_ULTRA_ECHO, GPIO_MODE_IN);
+
+	/* clear anything latched, then let both ECHO edges interrupt core 0 */
+	out_w(IO_INTR2, ECHO_EDGE_BITS);
+	out_w(IO_PROC0_INTE2, in_w(IO_PROC0_INTE2) | ECHO_EDGE_BITS);
 
 	app_pwm_unreset();
 	pwm_set_pin(PIN_SERVO_PWM);
@@ -60,27 +81,26 @@ LOCAL void busy_us(UW us)
 	}
 }
 
-/* One measurement in mm; SCAN_NO_ECHO (0) if no valid echo came back. */
+/* One measurement in mm; SCAN_NO_ECHO (0) if no valid echo came back.
+   Blocks (no CPU use) for at most ECHO_TIMEOUT_MS. */
 EXPORT INT ultra_ping_mm(void)
 {
-	UW t0, t1, us;
+	UINT ptn;
+	ER   er;
+	INT  mm;
+
+	tk_clr_flg(flg_echo, 0);		/* drop a completion left over from a late echo */
+	echo_arm(&echo);
 
 	gpio_set_val(PIN_ULTRA_TRIG, 1);
 	busy_us(10);
 	gpio_set_val(PIN_ULTRA_TRIG, 0);
 
-	t0 = APP_NOW_US();
-	while (!gpio_get_val(PIN_ULTRA_ECHO)) {
-		if ((UW)(APP_NOW_US() - t0) > ECHO_RISE_TIMEOUT_US) {
-			return SCAN_NO_ECHO;
-		}
+	er = tk_wai_flg(flg_echo, ECHO_FLG_DONE, TWF_ORW | TWF_BITCLR, &ptn, ECHO_TIMEOUT_MS);
+	if (er < E_OK) {
+		echo_disarm(&echo);		/* ignore the edge if it arrives later */
+		return SCAN_NO_ECHO;
 	}
-	t1 = APP_NOW_US();
-	while (gpio_get_val(PIN_ULTRA_ECHO)) {
-		if ((UW)(APP_NOW_US() - t1) > ECHO_FALL_TIMEOUT_US) {
-			return SCAN_NO_ECHO;
-		}
-	}
-	us = (UW)(APP_NOW_US() - t1);
-	return (INT)((us * 343) / 2000);	/* 0.343 mm/us, there and back */
+	mm = echo_us_to_mm(echo.width_us);
+	return mm;
 }
