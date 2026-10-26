@@ -320,6 +320,43 @@ int main(void)
 				CHECK_T("S5-H02", scan_evaluate(w, &r) && r.side == OBS_SIDE_RIGHT, "box extends left -> go right");
 			}
 		}
+
+		/* ---- interrupt-driven echo capture (Tribunal 1, replaces the busy-wait) ---- */
+		{
+			ECHO e = {0};
+			BOOL done;
+
+			/* 1750 us pulse = 300 mm */
+			echo_arm(&e);
+			done = echo_edge(&e, 1000, ECHO_EDGE_RISE);
+			CHECK_T("S5-H04a", !done && e.armed, "rising edge alone does not complete");
+			done = echo_edge(&e, 2750, ECHO_EDGE_FALL);
+			CHECK_T("S5-H04b", done && e.width_us == 1750 && echo_us_to_mm(e.width_us) == 300 && !e.armed,
+				"falling edge completes: 1750 us -> 300 mm, disarmed");
+
+			/* timer wrap between the edges */
+			echo_arm(&e);
+			echo_edge(&e, 0xFFFFFF00u, ECHO_EDGE_RISE);
+			done = echo_edge(&e, 0x00000100u, ECHO_EDGE_FALL);
+			CHECK_T("S5-H04c", done && e.width_us == 0x200, "timer wrap-around is harmless");
+
+			/* a falling edge left over from the previous ping, before our rising edge */
+			echo_arm(&e);
+			done = echo_edge(&e, 500, ECHO_EDGE_FALL);
+			CHECK_T("S5-H04d", !done && e.armed, "stale falling edge ignored");
+
+			/* edges after a timeout (disarmed) are ignored */
+			echo_arm(&e);
+			echo_disarm(&e);
+			echo_edge(&e, 100, ECHO_EDGE_RISE);
+			done = echo_edge(&e, 900, ECHO_EDGE_FALL);
+			CHECK_T("S5-H04e", !done && !e.have_rise, "edges after a timeout are ignored");
+
+			/* conversion limits: no pulse, and a pulse longer than ~2 m, are 'no echo' */
+			CHECK_T("S5-H04f", echo_us_to_mm(0) == SCAN_NO_ECHO && echo_us_to_mm(ECHO_MAX_US + 1) == SCAN_NO_ECHO &&
+				echo_us_to_mm(ECHO_MAX_US) > 0 && echo_us_to_mm(583) == 99,
+				"0 or > 12 ms = no echo; 583 us = 99 mm");
+		}
 	}
 
 	printf("\nhost tests: %d passed, %d failed\n", pass_, fail_);

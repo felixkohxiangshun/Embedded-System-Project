@@ -23,10 +23,10 @@ S3 = imu_terrain, S4 = dashboard, S5 = mission_obstacle.
 | Owner | Requirements | Task(s) and priority | Statechart | Assumptions | Also responsible for (report) |
 |---|---|---|---|---|---|
 | Dave | FR-11, FR-12, FR-13, NFR-14, NFR-15; FR-03 (turns), FR-09 (bypass motion) | `motor_task` 12 | 6.3 Motor | A5 battery, A6 wheel slip | motor pin layout, PID/control task, motion statechart |
-| Vania | FR-01, FR-02, FR-03 (decode), FR-10 (line), NFR-03, NFR-04, NFR-05 | `line_task` 13, `barcode_task` 15 | 6.1 Line and barcode | A3 IR contrast | line/barcode requirements, sensor calibration, navigation interface |
+| Vania | FR-01, FR-02, FR-03 (decode), FR-10 (line), NFR-03, NFR-04, NFR-05 | `line_task` 13, `barcode_task` 16 | 6.1 Line and barcode | A3 IR contrast | line/barcode requirements, sensor calibration, navigation interface |
 | Sook Yee | FR-04, FR-05, FR-06, NFR-06, NFR-07 | `imu_task` 15 | 6.2 IMU | A4 hump vs vibration | IMU interface, terrain requirements, terrain statechart |
-| Jun Kai | FR-14..FR-18 (incl. FR-16 telemetry), NFR-12, NFR-13 | `dashboard_task` 16, `telemetry_task` 16 | 6.5 Dashboard | A7, A8 WiFi / MQTT | communication requirements, telemetry interface, WiFi task |
-| Felix | FR-07, FR-08, FR-09, FR-10, FR-17, FR-19, NFR-08..NFR-11 | `mission_task` 14, `scan_task` 15 | 5 System, 6.4 Obstacle scan | A1 ultrasonic range, A2 shared priority | system architecture, task interaction diagram, obstacle scanning statechart |
+| Jun Kai | FR-14..FR-18 (incl. FR-16 telemetry), NFR-12, NFR-13 | `dashboard_task` 19, `telemetry_task` 18 | 6.5 Dashboard | A7, A8 WiFi / MQTT | communication requirements, telemetry interface, WiFi task |
+| Felix | FR-07, FR-08, FR-09, FR-10, FR-17, FR-19, NFR-08..NFR-11 | `mission_task` 14, `scan_task` 17 | 5 System, 6.4 Obstacle scan | A1 ultrasonic range, A2 shared priority | system architecture, task interaction diagram, obstacle scanning statechart |
 
 ## 2. Pins
 
@@ -79,8 +79,8 @@ kernel object (section 5) and never touches it.
 | ADC | Vania | `ir_sampler_handler` (1 ms cyclic handler) — see note | GP26–GP28 |
 | PWM slices 4, 5 | Dave | `motor_task` | GP8–GP11 |
 | PWM slice 6 | Felix | `scan_task` | GP12 |
-| GPIO interrupt (IO bank 0, NVIC 13) | Dave | `gpio_bank0_handler` (encoders and button) | GP2, GP3, GP6, GP7, GP20 |
-| HC-SR04 GPIO | Felix | `scan_task` | GP16, GP17 |
+| GPIO interrupt (IO bank 0, NVIC 13) | Dave | `gpio_bank0_handler` (encoders and button; forwards ECHO edges) | GP2, GP3, GP6, GP7, GP16, GP20 |
+| HC-SR04 GPIO | Felix | `scan_task` (TRIG, 10 µs pulse); ECHO edges via `ultra_echo_isr()` — see note | GP16, GP17 |
 | Status LED | Felix | `mission_task` | GP18 |
 | WiFi radio, TCP/IP, MQTT | *kernel* | `cyw43_utk_task` (built in) | GP23–25, GP29 |
 
@@ -91,6 +91,14 @@ differs from the template's "owning *task*" wording and from the design review,
 which has the 1 kHz handler sampling only the barcode sensor. The kernel's own ADC
 driver is switched off (`DEVCNF_USE_ADC 0` in `config/config_device.h`). The kernel
 I2C driver is switched on (`DEVCNF_USE_IIC 1`, pins GP4/GP5).
+
+**GPIO interrupt and the echo pin (Tribunal 1).** The RP2040 has one interrupt line for
+all of GPIO bank 0, so Dave's `gpio_bank0_handler` stays the only handler. It stamps the
+1 MHz timer on entry and forwards the ultrasonic ECHO edges (GP16) to `ultra_echo_isr()`
+in `mission_obstacle/drv_ultra.c` (declared in `app.h`, interrupt context, never blocks).
+Felix's `ultra_hw_init()` enables the two GP16 edges; Dave's file only calls the hook.
+`scan_task` pulses TRIG, then blocks on its private event flag `flg_echo` with a 30 ms
+timeout (timeout = no echo), so it no longer busy-waits for the echo.
 
 ### WiFi and MQTT
 
@@ -107,16 +115,25 @@ design review's ranking 1–5 is shifted into the application band. Instead of o
 band per subsystem (the template's default) the priorities follow the
 **criticality order of the design review**, which spans subsystems.
 
-| Review rank | Task | Subsystem | Priority | Trigger | Core |
-|---|---|---|---|---|---|
-| Highest (1) | `motor_task` | Dave | 12 | cyclic 10 ms | any |
-| High (2) | `line_task` | Vania | 13 | cyclic 10 ms | any |
-| Medium (3) | `mission_task` | Felix | 14 | 5 ms poll of its inputs | any |
-| Medium (4) | `barcode_task` | Vania | 15 | blocks on `mbf_edge` | any |
-| Medium (4) | `imu_task` | Sook Yee | 15 | cyclic 10 ms | any |
-| Medium (4) | `scan_task` | Felix | 15 | 60 ms ping timer / commands | any |
-| Low (5) | `telemetry_task` | Jun Kai | 16 | 500 ms | any |
-| Low (5) | `dashboard_task` | Jun Kai | 16 | 100 ms | any |
+**Tribunal 1 change.** Every task now has its own priority: the kernel does not
+time-slice tasks of equal priority, so the old shared "Medium (4)" level (IMU, Scan,
+Barcode) let one task hold the CPU until it blocked, and the ultrasonic busy-wait
+could do that for up to ~17 ms per ping. Inside one review rank the task with the
+shorter period goes first (rate monotonic). The Week 6 order of the ranks is unchanged.
+
+| Review rank | Task | Subsystem | Priority | Trigger | Period | WCET | Core |
+|---|---|---|---|---|---|---|---|
+| Highest (1) | `motor_task` | Dave | 12 | cyclic 10 ms | 10 ms | *not measured* | any |
+| High (2) | `line_task` | Vania | 13 | cyclic 10 ms | 10 ms | *not measured* | any |
+| Medium (3) | `mission_task` | Felix | 14 | 5 ms poll of its inputs | 5 ms | *not measured* | any |
+| Medium (4) | `imu_task` | Sook Yee | 15 | cyclic 10 ms | 10 ms | *not measured* | any |
+| Medium (4) | `barcode_task` | Vania | 16 | blocks on `mbf_edge` | event (capture ends after 120 ms silence) | *not measured* | any |
+| Medium (4) | `scan_task` | Felix | 17 | 60 ms ping timer / commands; blocks on the echo interrupt (≤ 30 ms) | 60 ms | *not measured* | any |
+| Low (5) | `telemetry_task` | Jun Kai | 18 | 500 ms | 500 ms | *not measured* | any |
+| Low (5) | `dashboard_task` | Jun Kai | 19 | 100 ms | 100 ms | *not measured* | any |
+
+WCET (worst-case execution time) is measured on the board by each owner and filled
+in here; record the method and the raw numbers in your `TEST_LOG.md`.
 
 Handlers (not tasks): `ir_sampler_handler` 1 ms, and the cyclic wake-up handlers for
 Motor, Line and IMU. Interrupt: `gpio_bank0_handler`. The system tick is 1 ms
@@ -159,7 +176,7 @@ WiFi) also use a few objects, so the message-buffer limit was raised from 12 to 
 |---|---|---|---|---|---|---|---|
 | Task | 32 | 1 | 2 | 1 | 2 | 2 | 8 |
 | Semaphore | 16 | | | | | | 0 |
-| Event flag | 16 | 1 | | | | | 1 |
+| Event flag | 16 | 1 | | | | 1 | 2 |
 | Mailbox | 12 | | | | | | 0 |
 | Mutex | 12 | | | | | 1 | 1 |
 | Message buffer | 24 | 1 | 1 | | 3 | 6 | 11 |
