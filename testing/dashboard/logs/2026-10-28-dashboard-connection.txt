@@ -1,0 +1,28 @@
+CSC11 browser dashboard physical connection evidence, 2026-10-28
+Firmware: existing opt-in MQTT transport test; no firmware edits in this step.
+Dashboard: app_program/dashboard/web/ (local uncommitted files).
+Local HTTP: http://127.0.0.1:8765/
+Local WebSocket: ws://127.0.0.1:9001/mqtt
+Pico: 172.20.10.2; broker on Mac: 172.20.10.4:1883.
+
+Observed through the browser UI:
+- MQTT broker: Connected; WebSocket connected, subscription ready.
+- Pico signal: Receiving; fresh binary test messages.
+- Exact latest binary payload: 8D 23 01 00 FF.
+- Message count increased; browser short-window mean inter-arrival displayed
+  about 501 ms during observation. This is not a latency/deadline measurement.
+- Clicked Send test reply; UI: Broker acknowledged. Check the Pico console for RX PASS.
+
+Physical USB console captured during this button test:
+[mqtt-test] RX PASS count=3 bytes=8d230100ff (log only)
+Capture source: /tmp/inf2004-dashboard-reply.log
+
+UI interaction checks:
+- Disconnect: broker Disconnected, Pico Offline, Send test reply disabled.
+- Reconnect: broker Connected/subscription ready, fresh Pico messages resumed.
+- Browser console error list: empty.
+- Layout screenshot: 2026-10-28-dashboard-preview.png.
+
+No sensor telemetry, real E_STOP/RESUME, replay/freshness semantics for commands,
+physical stopping, or motor timing is established by this test. Sensor fields
+remain unavailable in the page. The fixed fixture proves transport only.

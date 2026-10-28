@@ -1,0 +1,21 @@
+CSC11 connection monitor restyle verification, 2026-10-28
+Scope: web index.html, styles.css, and two payload-status strings in app.mjs.
+No MQTT transport, fixture, timing, validation or firmware changes.
+
+Checked in the local in-app browser:
+- Broker Connected and subscription ready.
+- Fresh Pico fixture messages received and increasing message count.
+- Exact displayed bytes: 8D 23 01 00 FF.
+- Clicked Send test reply. Browser displayed broker acknowledgement.
+- Independently subscribed to csc11/dev/pico/rx at QoS1 on the Mac; received
+  exact bytes 8d230100ff for that button click.
+- Disconnect displayed Disconnected/Offline and disabled Send test reply.
+- Reconnect re-established the subscription and fresh fixture stream.
+- Clear log removed previous events and displayed Activity log cleared.
+- Browser console reported no errors after final reload.
+- All 25 required JavaScript UI hook IDs exist; no duplicate IDs.
+- JavaScript syntax check and all three existing model tests passed.
+
+Only the diagnostic fixture is displayed/transmitted. No final sensor protocol,
+motor commands, physical stopping or latency guarantee is established here.
+Full sensor data remains unavailable in the telemetry table.
