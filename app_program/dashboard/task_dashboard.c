@@ -25,6 +25,28 @@ EXPORT volatile UW s4_console_lines;
 
 #define DASH_TICK_MS	100
 
+#if APP_TEST && TM_WIFI_CYW43 && TM_NET_LWIP
+/* Test-image diagnostic: current status remains visible after startup.
+ * Status is read through the service's existing interface; no radio calls.
+ * CYW43_LINK_UP is 3 in the driver used by this repository.
+ */
+LOCAL void report_wifi_test_status(void)
+{
+	T_CYW43_UTK_STATUS st;
+	UW ip;
+	cyw43_utk_get_status(&st);
+	if (st.link_status == 3 && st.ip_addr != 0) {
+		ip = st.ip_addr;
+		tm_printf((UB*)"[wifi-test] UP ip=%d.%d.%d.%d\n",
+			(INT)(ip & 0xff), (INT)((ip >> 8) & 0xff),
+			(INT)((ip >> 16) & 0xff), (INT)((ip >> 24) & 0xff));
+	} else {
+		tm_printf((UB*)"[wifi-test] NOT_UP link=%d ready=%d\n",
+			(INT)st.link_status, (INT)st.ready);
+	}
+}
+#endif
+
 LOCAL BOOL wifi_is_up(void)
 {
 #if TM_WIFI_CYW43
@@ -62,6 +84,9 @@ EXPORT void dashboard_task(INT stacd, void *exinf)
 	SYSTIM          now;
 	INT             len;
 	UB              cmd;
+#if APP_TEST && TM_WIFI_CYW43 && TM_NET_LWIP
+	INT             wifi_report_ms = 0;
+#endif
 
 	(void)stacd; (void)exinf;
 	dash_init(&d);
@@ -69,6 +94,13 @@ EXPORT void dashboard_task(INT stacd, void *exinf)
 
 	while (1) {
 		tk_dly_tsk(DASH_TICK_MS);
+#if APP_TEST && TM_WIFI_CYW43 && TM_NET_LWIP
+		wifi_report_ms += DASH_TICK_MS;
+		if (wifi_report_ms >= 5000) {
+			wifi_report_ms = 0;
+			report_wifi_test_status();
+		}
+#endif
 
 		din.dt_ms = DASH_TICK_MS;
 		din.wifi_up = wifi_is_up();

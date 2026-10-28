@@ -1,0 +1,40 @@
+Pico MQTT diagnostic rejection/reconnect hardware evidence, 2026-10-28
+Firmware: opt-in mqtt_transport_test.c, commit 99417c6 + local changes.
+Pico: 172.20.10.2. Mac broker: 172.20.10.4.
+Tester: Codex for Jun Kai, with user's Pico attached and running test image.
+Diagnostic topic: csc11/dev/pico/rx. No Mission/motor commands were transmitted.
+
+Three non-retained QoS1 fixtures were published from the Mac:
+1. Short payload: 8d23 (2 bytes)
+2. Oversized payload: 64 zero bytes
+3. Wrong contents: five zero bytes
+
+USB console capture /tmp/inf2004-mqtt-reconnect.log contains:
+[mqtt-test] RX REJECT count=1
+[mqtt-test] RX REJECT count=2
+[mqtt-test] RX REJECT count=3
+
+The broker was stopped and restarted on the same Mac address. Console capture:
+[mqtt-test] connecting to 172.20.10.4:1883
+[mqtt-test] connected to 172.20.10.4:1883
+[mqtt-test] ONLINE; RX subscribed QoS1; TX QoS0 every 500ms
+
+Mac subscriber subsequently received five non-retained Pico publications:
+8d230100ff
+8d230100ff
+8d230100ff
+8d230100ff
+8d230100ff
+
+Mac then sent the valid fixture 8d230100ff at QoS1. Pico console capture:
+[mqtt-test] RX PASS count=2 bytes=8d230100ff (log only)
+
+Conclusion: malformed fixture rejection and broker-restart recovery, including
+restored receive subscription, passed on the attached Pico. Reconnection latency
+and retry intervals were not measured. No freshness/replay/retained-message
+semantics or real application protocol is tested by this fixed fixture.
+
+An earlier logged publish request error=-1 was present before this test. The TX
+failure counter remained 1 while accepted publications continued, including
+after restart. This shows recovery, not loss-free delivery. Full packet loss,
+sample age, timing, memory and motor behavior remain unmeasured.

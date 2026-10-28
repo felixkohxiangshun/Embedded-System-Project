@@ -23,6 +23,9 @@ Define a test here before running it. Test IDs never change.
 | S4-M04 | heartbeat when no telemetry is sent | FR-18 | manual | Stop Telemetry (or pull the car's data) for 3 s. | heartbeat every 1 s |
 | S4-B01 | range-based binary bit packing primitive | Minimum-bit groundwork; no final schema | auto, host | Compile/run `protocol_bits_test.c` as described in `BRINGUP_REVIEW.md` | Known bytes, boundaries, invalid input and widths/offsets pass under address/undefined sanitizers |
 | S4-B02 | binary packing on the RP2040 | Minimum-bit groundwork; no final schema | auto, target | Build `SMP=0 WIFI=none NET=none MQTT=0 TEST=1`; flash and capture USB console | `[TEST] S4-B02 PASS` for known bytes, decode, invalid range and short-buffer rejection; hardware execution pending |
+| S4-B03 | opt-in MQTT transport scheduling/callback validation | Transport groundwork, not IF-12 integration | auto, host | `sh testing/dashboard/broker/test_mqtt_transport.sh` | Subscription gating, binary fragment/length checks, retry cap, resubscription and clock-wrap checks pass |
+| S4-M05 | Pico binary transport in both directions | MQTT diagnostic, not real telemetry/commands | manual, target | Follow `broker/PICO_MQTT_TEST.md` | Mac receives five `8d230100ff` messages; Pico logs RX PASS for exact reply and REJECT for invalid length |
+| S4-M06 | Broker-restart recovery of diagnostic transport | MQTT reconnect/resubscribe groundwork | manual, target | Stop/restart broker; receive five fresh outbound fixtures, then send valid binary reply | Connection/subscription restored, both directions resume |
 
 *Method:* **auto** = `TEST_CHECK` in code, result printed on the console
 (`make TEST=1`); **host** = the same check also runs on a PC (`testing/host`);
@@ -38,3 +41,8 @@ Add a new row for every run. Never edit or delete old rows.
 | *(none yet)* | | | | | | on-target `TEST=1` run and manual tests still to do |
 | 2026-10-23 | S4-U01..S4-U05 | c1cb8d9 unchanged baseline | Codex for Jun Kai | PASS | `make -C testing/host run`: 80 passed, 0 failed overall | Current JSON/text logic only; not binary protocol compliance or hardware evidence |
 | 2026-10-23 | S4-B01 | c1cb8d9 + local protocol_bits files | Codex for Jun Kai | PASS | `protocol_bits: known vector, invalid inputs, all widths/offsets PASS` | C99 warnings-as-errors; address/undefined sanitizers; no board |
+| 2026-10-28 | S4-B02 | 99417c6 | Jun Kai | PASS | User supplied `[TEST] S4-B02 PASS` and `dashboard SUMMARY 16 passed, 0 failed` | Physical Pico execution; unrelated S3-H01 IMU failure reported |
+| 2026-10-28 | S4-M01 (join/IP only) | 99417c6 + local test-only WiFi reporting | Jun Kai | PASS (partial) | User supplied `[wifi-test] UP ip=172.20.10.2` | SSID JK; WiFi/DHCP confirmed; join deadline not measured; MQTT disabled |
+| 2026-10-28 | S4-B03 | 99417c6 + local MQTT diagnostic | Codex for Jun Kai | PASS | Host callback tests under address/undefined sanitizers | Mocked network I/O; real SDK declarations; hardware MQTT results pending |
+| 2026-10-28 | S4-M05 (positive paths) | 99417c6 + local MQTT diagnostic | Jun Kai; log checked by Codex | PASS (partial) | `logs/2026-10-28-mqtt-transport.txt`: five exact outbound fixtures and Pico RX PASS | Hardware binary delivery confirmed both ways; invalid-length rejection and reconnect tests still pending |
+| 2026-10-28 | S4-M05 (invalid inputs), S4-M06 | 99417c6 + local MQTT diagnostic | Codex for Jun Kai | PASS | `logs/2026-10-28-mqtt-rejection-reconnect.txt`: three RX REJECTs, reconnect/ONLINE and RX PASS after restart | Exact fixture protocol only; retry timing, message freshness and motor behavior not validated; previous publish failure count remained 1 |

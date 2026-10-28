@@ -1,0 +1,23 @@
+Binary MQTT transport positive-path evidence, 2026-10-28
+Firmware: opt-in mqtt_transport_test.c build; commit 99417c6 + local changes.
+Pico WiFi address: 172.20.10.2; Mac broker address: 172.20.10.4.
+
+User-supplied Mac subscriber output:
+Command: mosquitto_sub -h 127.0.0.1 -t csc11/dev/pico/tx -R -C 5 -W 90 -F '%x'
+8d230100ff
+8d230100ff
+8d230100ff
+8d230100ff
+8d230100ff
+
+Relevant Pico console lines extracted from the user's saved USB serial log
+at /tmp/inf2004-jk-scan/screenlog.0:
+[mqtt-test] connected to 172.20.10.4:1883
+[mqtt-test] ONLINE; RX subscribed QoS1; TX QoS0 every 500ms
+[mqtt-test] RX PASS count=1 bytes=8d230100ff (log only)
+
+Result: exact five-byte binary fixture observed in both directions on hardware.
+Configuration: QoS0 outbound/non-retained, QoS1 RX subscription and Mac publish.
+No actual sensor frame or Mission command was sent by this diagnostic.
+No interval/age/latency measurement, invalid-input hardware test, reconnect test,
+motor deadline test or stopping-distance test is established by these excerpts.
