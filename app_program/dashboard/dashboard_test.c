@@ -5,9 +5,40 @@
  */
 
 #include "dashboard.h"
+#include "protocol_bits.h"
 #include "../test_report.h"
 
 #if APP_TEST
+
+/* Known bytes, independent of the encoder, plus rejection without mutation. */
+LOCAL BOOL binary_board_check(void)
+{
+	uint8_t packet[3] = {0};
+	const uint8_t known[3] = {0x8d, 0x23, 0x01};
+	uint32_t bit = 0, value = 99;
+	BOOL ok;
+
+	ok = protocol_bits_put(packet, 3, &bit, 5, 7) &&
+	     protocol_bits_put(packet, 3, &bit, 17, 31) &&
+	     protocol_bits_put(packet, 3, &bit, 0x123, 511);
+	ok = ok && bit == 17 && packet[0] == known[0] &&
+	     packet[1] == known[1] && packet[2] == known[2];
+	bit = 0;
+	ok = ok && protocol_bits_get(known, 3, &bit, 7, &value) && value == 5;
+	ok = ok && protocol_bits_get(known, 3, &bit, 31, &value) && value == 17;
+	ok = ok && protocol_bits_get(known, 3, &bit, 511, &value) && value == 0x123;
+	bit = 0;
+	ok = ok && !protocol_bits_put(packet, 3, &bit, 11, 10) &&
+	     bit == 0 && packet[0] == known[0];
+	bit = 7;
+	ok = ok && !protocol_bits_get(known, 1, &bit, 3, &value) &&
+	     bit == 7 && value == 0x123;
+	packet[0] = 15;
+	bit = 0;
+	ok = ok && !protocol_bits_get(packet, 1, &bit, 10, &value) &&
+	     bit == 0 && value == 0x123;
+	return ok;
+}
 
 /* Does s contain sub? */
 LOCAL BOOL has(const char *s, const char *sub)
@@ -48,6 +79,10 @@ EXPORT void dashboard_test(void)
 	INT       len;
 
 	TEST_INIT();
+	/* Test image only: allow time to open USB serial after flashing. */
+	tk_dly_tsk(10000);
+	TEST_CHECK("S4-B02", binary_board_check(),
+		   "binary packing: 8d 23 01, decode and invalid input rejection");
 
 	/* S4-U01: a normal frame is valid JSON-looking text with the FR-16 fields */
 	t.sys_state = SYS_LINE_FOLLOW;

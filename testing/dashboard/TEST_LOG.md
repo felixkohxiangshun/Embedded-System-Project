@@ -21,6 +21,8 @@ Define a test here before running it. Test IDs never change.
 | S4-M02 | **blocked until IF-12 is agreed:** broker receives a frame every 500 ms at QoS 0 | FR-15, FR-16, NFR-12 | manual | Subscribe to the topic with an MQTT client. | one frame per 500 ms |
 | S4-M03 | **blocked until IF-12 is agreed:** E_STOP from the dashboard halts the car; RESUME re-enters LINE_FOLLOW | FR-17, NFR-12 | manual | Publish E_STOP then RESUME. | motors stop / restart |
 | S4-M04 | heartbeat when no telemetry is sent | FR-18 | manual | Stop Telemetry (or pull the car's data) for 3 s. | heartbeat every 1 s |
+| S4-B01 | range-based binary bit packing primitive | Minimum-bit groundwork; no final schema | auto, host | Compile/run `protocol_bits_test.c` as described in `BRINGUP_REVIEW.md` | Known bytes, boundaries, invalid input and widths/offsets pass under address/undefined sanitizers |
+| S4-B02 | binary packing on the RP2040 | Minimum-bit groundwork; no final schema | auto, target | Build `SMP=0 WIFI=none NET=none MQTT=0 TEST=1`; flash and capture USB console | `[TEST] S4-B02 PASS` for known bytes, decode, invalid range and short-buffer rejection; hardware execution pending |
 
 *Method:* **auto** = `TEST_CHECK` in code, result printed on the console
 (`make TEST=1`); **host** = the same check also runs on a PC (`testing/host`);
@@ -34,3 +36,5 @@ Add a new row for every run. Never edit or delete old rows.
 |---|---|---|---|---|---|---|
 | 2026-10-11 | S4-U01, S4-U02, S4-U03, S4-U04, S4-U05 | *(uncommitted)* | *(Claude, port)* | PASS | `make -C testing/host run` | host (PC) run of testing/host; not yet run on the board |
 | *(none yet)* | | | | | | on-target `TEST=1` run and manual tests still to do |
+| 2026-10-23 | S4-U01..S4-U05 | c1cb8d9 unchanged baseline | Codex for Jun Kai | PASS | `make -C testing/host run`: 80 passed, 0 failed overall | Current JSON/text logic only; not binary protocol compliance or hardware evidence |
+| 2026-10-23 | S4-B01 | c1cb8d9 + local protocol_bits files | Codex for Jun Kai | PASS | `protocol_bits: known vector, invalid inputs, all widths/offsets PASS` | C99 warnings-as-errors; address/undefined sanitizers; no board |
