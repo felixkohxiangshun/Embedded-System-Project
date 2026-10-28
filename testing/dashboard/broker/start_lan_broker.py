@@ -1,15 +1,8 @@
-"""Start the development broker on en0's current IPv4 and on loopback.
-
-Run on the same password-protected home/hotspot network as the Pico.
-Only csc11/dev/# topics are allowed; no application command bridge is enabled.
-Config and ACL files live in a temporary directory for this foreground run.
-"""
 import ipaddress
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
-
 
 def main():
     broker = shutil.which("mosquitto") or "/opt/homebrew/sbin/mosquitto"
@@ -56,7 +49,6 @@ def main():
                 process.kill()
                 process.wait()
             return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

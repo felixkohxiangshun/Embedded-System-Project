@@ -1,4 +1,3 @@
-/* Callback/scheduling checks using real SDK MQTT declarations and mocked I/O. */
 #include <assert.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -74,7 +73,7 @@ int main(void)
     assert(connect_calls == 1 && connecting);
     accept_connection();
     mqtt_utk_start();
-    assert(subscribe_calls == 1 && publish_calls == 0); /* Wait for SUBACK. */
+    assert(subscribe_calls == 1 && publish_calls == 0);
     captured_subscribe(NULL, ERR_OK);
     mqtt_utk_start();
     assert(subscribed && tx_accepted == 1 && publish_calls == 1);
@@ -83,7 +82,7 @@ int main(void)
     clock_ms = 500; mqtt_utk_start();
     assert(publish_calls == 2);
     clock_ms = 10000; mqtt_utk_start(); mqtt_utk_start();
-    assert(publish_calls == 3); /* No burst catching up missed periods. */
+    assert(publish_calls == 3);
     publish_result = ERR_MEM;
     clock_ms += 500; mqtt_utk_start();
     assert(tx_failed == 1 && tx_accepted == 3);
@@ -95,7 +94,7 @@ int main(void)
     incoming_data(NULL, fixture + 2, 3, MQTT_DATA_FLAG_LAST);
     assert(rx_pass == 1 && !rx_active);
     incoming_data(NULL, fixture, 5, MQTT_DATA_FLAG_LAST);
-    assert(rx_pass == 1); /* Ignore fragments without an active packet. */
+    assert(rx_pass == 1);
     incoming_publish(NULL, TEST_RX_TOPIC, 0);
     incoming_publish(NULL, TEST_RX_TOPIC, UINT32_MAX);
     incoming_publish(NULL, "other", 5);
@@ -116,11 +115,10 @@ int main(void)
     clock_ms += 1; mqtt_utk_start();
     assert(connect_calls == 2);
     accept_connection();
-    assert(subscribe_calls == 2 && !subscribed); /* Resubscribe on reconnect. */
+    assert(subscribe_calls == 2 && !subscribed);
     captured_subscribe(NULL, ERR_ABRT);
     assert(!connected && retry_pending && !subscribed);
 
-    /* Repeated immediate failures are delayed, and backoff remains capped. */
     connect_result = ERR_CONN;
     for (i = 0; i < 10; ++i) {
         int before = connect_calls;
@@ -130,7 +128,7 @@ int main(void)
         assert(connect_calls == before + 1 && retry_pending);
         assert(retry_ms <= TEST_BACKOFF_MAX_MS);
     }
-    /* A deadline spanning the 32-bit clock rollover still waits correctly. */
+
     retry_ms = 1000;
     clock_ms = UINT32_MAX - 499;
     schedule_retry();

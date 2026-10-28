@@ -1,6 +1,4 @@
 #!/bin/sh
-# Isolated binary transport diagnostic using the existing radio service task.
-# Exclude the shared text-demo port and supply mqtt_utk_start from our test file.
 set -eu
 repo_root=$(CDPATH= cd "$(dirname "$0")/../../.." && pwd)
 make -C "$repo_root/build_make" -j8 \

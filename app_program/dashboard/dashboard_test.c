@@ -1,16 +1,9 @@
-/*
- *	dashboard_test.c
- *	On-target tests for the Dashboard subsystem (Dashboard).
- *	Built only with: make TEST=1.  Results: testing/dashboard/TEST_LOG.md
- */
-
 #include "dashboard.h"
 #include "protocol_bits.h"
 #include "../test_report.h"
 
 #if APP_TEST
 
-/* Known bytes, independent of the encoder, plus rejection without mutation. */
 LOCAL BOOL binary_board_check(void)
 {
 	uint8_t packet[3] = {0};
@@ -40,7 +33,6 @@ LOCAL BOOL binary_board_check(void)
 	return ok;
 }
 
-/* Does s contain sub? */
 LOCAL BOOL has(const char *s, const char *sub)
 {
 	INT i, k;
@@ -79,12 +71,11 @@ EXPORT void dashboard_test(void)
 	INT       len;
 
 	TEST_INIT();
-	/* Test image only: allow time to open USB serial after flashing. */
+
 	tk_dly_tsk(10000);
 	TEST_CHECK("S4-B02", binary_board_check(),
 		   "binary packing: 8d 23 01, decode and invalid input rejection");
 
-	/* S4-U01: a normal frame is valid JSON-looking text with the FR-16 fields */
 	t.sys_state = SYS_LINE_FOLLOW;
 	t.speed_mmps = 120;
 	t.last_barcode = 'B';
@@ -93,7 +84,6 @@ EXPORT void dashboard_test(void)
 		   has(buf, "\"state\":\"LINE_FOLLOW\"") && has(buf, "\"barcode\":\"B\"") &&
 		   has(buf, "\"speed_mmps\":120"), "telemetry frame has the expected fields");
 
-	/* S4-U02: the largest possible frame still fits in 512 bytes (NFR-13) */
 	t.speed_mmps = -2147483647 - 1;
 	t.dist_mm = 0xFFFFFFFF;
 	t.enc_left = -2147483647 - 1;
@@ -105,15 +95,12 @@ EXPORT void dashboard_test(void)
 	len = dash_format_telem(&t, buf, (INT)sizeof(buf));
 	TEST_CHECK("S4-U02", len > 0 && len <= DASH_JSON_MAX, "worst-case frame fits in 512 bytes");
 
-	/* S4-U03: a too-small buffer is refused, not overrun */
 	TEST_CHECK("S4-U03", dash_format_telem(&t, buf, 20) == -1, "overflow is detected");
 
-	/* S4-U04: dashboard commands */
 	TEST_CHECK("S4-U04", dash_parse_cmd("E_STOP", 6) == MQTTCMD_ESTOP &&
 		   dash_parse_cmd("{\"cmd\":\"RESUME\"}", 16) == MQTTCMD_RESUME &&
 		   dash_parse_cmd("hello", 5) == 0, "E_STOP / RESUME parsed, junk ignored");
 
-	/* S4-U05: connection statechart, section 6.5 */
 	dash_init(&d);
 	step(&d, FALSE, 0, FALSE, 100);
 	TEST_CHECK("S4-U05a", d.state == DASH_WIFI_CONNECTING, "stays in WIFI_CONNECTING without WiFi");
@@ -134,12 +121,10 @@ EXPORT void dashboard_test(void)
 	step(&d, FALSE, 0, FALSE, DASH_RECONNECT_MS);
 	TEST_CHECK("S4-U05i", d.state == DASH_WIFI_CONNECTING, "after the pause -> WIFI_CONNECTING");
 
-	/* S4-I01: the Telemetry task sends a frame every 500 ms (FR-16, IF-09 source) */
 	before = s4_telem_sent;
 	tk_dly_tsk(1200);
 	TEST_CHECK("S4-I01", s4_telem_sent >= before + 2, "Telemetry sends a frame every 500 ms");
 
-	/* INT-02 (IF-09): the Telemetry task's frames reach the Dashboard */
 	before = s4_frames;
 	tk_dly_tsk(1300);
 	TEST_CHECK("INT-02", s4_frames >= before + 2, "telemetry frames flow from Telemetry to Dashboard");
@@ -147,4 +132,4 @@ EXPORT void dashboard_test(void)
 	TEST_SUMMARY("dashboard");
 }
 
-#endif /* APP_TEST */
+#endif

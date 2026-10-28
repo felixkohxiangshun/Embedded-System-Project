@@ -1,4 +1,3 @@
-/* Host-only tests: independent known vectors plus malformed/boundary inputs. */
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -14,8 +13,6 @@ int main(void)
     assert(protocol_bits_required(10) == 4);
     assert(protocol_bits_required(UINT32_MAX) == 32);
 
-    /* Artificial test fields only: 5 (3 bits), 17 (5), 0x123 (9).
-     * Wire integer = 5 | (17 << 3) | (0x123 << 8) = 0x01238d. */
     assert(protocol_bits_put(packet, 3, &cursor, 5, 7));
     assert(protocol_bits_put(packet, 3, &cursor, 17, 31));
     assert(protocol_bits_put(packet, 3, &cursor, 0x123, 511));
@@ -45,8 +42,6 @@ int main(void)
     assert(!protocol_bits_get(packet, 1, 0, 1, &value));
     assert(!protocol_bits_get(packet, 1, &cursor, 1, 0));
 
-    /* Every field width and bit offset, including a full-width 32-bit code.
-     * Start with ones: writing zeros must clear old bits. */
     for (i = 1; i <= 32; ++i) {
         unsigned int offset;
         uint32_t maximum = UINT32_MAX >> (32u - i);

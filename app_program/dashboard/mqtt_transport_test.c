@@ -1,8 +1,3 @@
-/* Opt-in transport test, NOT the final telemetry/command protocol.
- * The build substitutes this for mqtt_utk.c. mqtt_utk_start() and all callbacks
- * run on the existing radio/lwIP service task; no student task calls lwIP.
- * No Mission messages, motor GPIOs or application commands are generated.
- */
 #if DASH_MQTT_TRANSPORT_TEST
 
 #include "lwip/apps/mqtt.h"
@@ -17,7 +12,6 @@
 #define TEST_PUBLISH_MS 500u
 #define TEST_BACKOFF_MAX_MS 16000u
 
-/* Artificial byte fixture includes NUL and non-ASCII: not sensor fields. */
 static const uint8_t fixture[] = {0x8d, 0x23, 0x01, 0x00, 0xff};
 static mqtt_client_t *client;
 static uint8_t connecting, subscribed, retry_pending, rx_active;
@@ -127,9 +121,6 @@ static void connection_changed(mqtt_client_t *c, void *arg, mqtt_connection_stat
     }
 }
 
-/* Called repeatedly only while the WiFi service sees CYW43_LINK_UP.
- * No extra tasks, timer chains or catch-up publication loops are created.
- */
 void mqtt_utk_start(void)
 {
     struct mqtt_connect_client_info_t info = {0};
@@ -180,4 +171,4 @@ void mqtt_utk_start(void)
     }
 }
 
-#endif /* DASH_MQTT_TRANSPORT_TEST */
+#endif

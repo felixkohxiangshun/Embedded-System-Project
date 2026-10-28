@@ -1,6 +1,4 @@
 #!/bin/sh
-# Compile the existing radio diagnostic without editing shared firmware/build files.
-# A distinct profile prevents reuse of objects compiled without scan support.
 set -eu
 repo_root=$(CDPATH= cd "$(dirname "$0")/../../.." && pwd)
 make -C "$repo_root/build_make" -j8 \

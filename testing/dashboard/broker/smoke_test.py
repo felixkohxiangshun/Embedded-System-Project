@@ -1,8 +1,3 @@
-"""Verify binary MQTT routing across TCP/WebSockets using Mosquitto 2.1 clients.
-
-Only publishes artificial test bytes on unique development topics. No car commands.
-Run after starting mosquitto.conf: python3 smoke_test.py
-"""
 import os
 import argparse
 import select
@@ -10,7 +5,6 @@ import shutil
 import subprocess
 import time
 import uuid
-
 
 def exchange(source_ws, destination_ws, qos, tcp_host="127.0.0.1"):
     pub = shutil.which("mosquitto_pub")
@@ -25,7 +19,6 @@ def exchange(source_ws, destination_ws, qos, tcp_host="127.0.0.1"):
             ["--ws"] if websocket else []
         )
 
-    # macOS script keeps client debug output line-buffered and drains its PTY.
     receiver = subprocess.Popen(
         ["/usr/bin/script", "-q", "/dev/null", sub, *transport(destination_ws), "-t", topic, "-q", str(qos),
          "-C", "1", "-W", "8", "-F", "%x", "-d"],
@@ -35,7 +28,7 @@ def exchange(source_ws, destination_ws, qos, tcp_host="127.0.0.1"):
     master = receiver.stdout.fileno()
     output = b""
     try:
-        # Wait for acknowledged subscription, rather than race a fixed delay.
+
         deadline = time.monotonic() + 8
         while b"received SUBACK" not in output:
             remaining = deadline - time.monotonic()
@@ -62,7 +55,6 @@ def exchange(source_ws, destination_ws, qos, tcp_host="127.0.0.1"):
             receiver.kill()
             receiver.wait()
         receiver.stdout.close()
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
