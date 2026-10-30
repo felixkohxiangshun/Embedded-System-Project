@@ -9,6 +9,7 @@
  *	  S1_TEST_FLOOR     S1-M03..M05, M10  car on the floor
  *	  S1_TEST_CMDS      S1-M11..M18    wheels lifted
  *	  S1_TEST_BYPASS    S1-M19         car on the floor
+ *	  S1_TEST_DIST      S1-M21         car on the floor beside a ruler
  *	  S1_TEST_TURN_BTN  button turns   car on the floor, never returns
  */
 
@@ -22,13 +23,16 @@
 #ifndef S1_TEST_BYPASS
 #define S1_TEST_BYPASS		0	/* S1-M19, car on the floor */
 #endif
+#ifndef S1_TEST_DIST
+#define S1_TEST_DIST		0	/* S1-M21, car on the floor beside a ruler */
+#endif
 #ifndef S1_TEST_TURN_BTN
 #define S1_TEST_TURN_BTN	0	/* never returns, so no SUMMARY line */
 #endif
 
 #if APP_TEST
 
-#if S1_TEST_CMDS || S1_TEST_BYPASS
+#if S1_TEST_CMDS || S1_TEST_BYPASS || S1_TEST_DIST
 IMPORT ID tid_mission;
 
 #define S1_BYPASS_WIDTH_MM	100	/* obstacle width sent with NAV_BYPASS */
@@ -61,6 +65,24 @@ LOCAL void s1_nav(UB type, INT arg, INT arg2)
 	(void)MBF_SEND(mbf_nav, m);
 }
 
+#if S1_TEST_DIST
+#define S1_DIST_GOAL_MM		450	/* 50 cm ruler, room left to coast; use 1000 with a tape measure */
+#define S1_DIST_RUNS		3
+
+/* The distance Motor publishes for Telemetry (IF-11, FR-12) */
+LOCAL INT s1_dist_mm(void)
+{
+	INT d = 0;
+
+	if (state_lock(100) == E_OK) {
+		d = (INT)app_state.dist_mm;
+		state_unlock();
+	}
+	return d;
+}
+#endif /* S1_TEST_DIST */
+
+#if S1_TEST_CMDS || S1_TEST_BYPASS
 /* The command-done counter Motor publishes for Mission (IF-11) */
 LOCAL UW s1_done_seq(void)
 {
@@ -107,6 +129,7 @@ LOCAL BOOL s1_bypass(INT side)
 	return ok && (s1_state == MOT_STOPPED) && (s1_done_seq() == seq0 + 1U);
 }
 #endif /* S1_TEST_CMDS || S1_TEST_BYPASS */
+#endif /* S1_TEST_CMDS || S1_TEST_BYPASS || S1_TEST_DIST */
 
 #if S1_TEST_CMDS
 /* Drive 2 s at 'steer', sending NAV_STEER every 50 ms so the Mission
@@ -426,6 +449,45 @@ EXPORT void motor_control_test(void)
 				  150 + S1_BYPASS_WIDTH_MM);
 			tk_dly_tsk(10000);		/* time to measure */
 		}
+	}
+#endif
+#if S1_TEST_DIST
+	/* S1-M21: encoder distance against a ruler (FR-12).  The car drives
+	   straight until dist_mm has grown by S1_DIST_GOAL_MM, stops, and
+	   prints how far it thinks it went, coasting included.  Compare that
+	   with the ruler: the two must agree, not the goal and the ruler. */
+	{
+		INT k, t, d, bl, br, dl, dr;
+
+		s1_pause_mission();
+		tk_set_flg(flg_evt, EVT_STOP);
+		for (k = 1; k <= S1_DIST_RUNS; k++) {
+			tm_printf((UB*)"[DIST] run %d of %d: put the front axle on 0 of the ruler - starts in 10 s\n",
+				  k, S1_DIST_RUNS);
+			tk_dly_tsk(10000);
+			d = s1_dist_mm();
+			bl = enc_cnt[0];
+			br = enc_cnt[1];
+			tk_set_flg(flg_evt, EVT_START);
+			for (t = 0; (t < 10000) && (s1_dist_mm() - d < S1_DIST_GOAL_MM); t += 20) {
+				if ((t % 100) == 0) {
+					s1_nav(NAV_STEER, 0, 0);	/* keep the Mission watchdog fed */
+				}
+				tk_dly_tsk(20);
+			}
+			tk_set_flg(flg_evt, EVT_STOP);
+			tk_dly_tsk(1000);			/* let it coast to a stop */
+			d = s1_dist_mm() - d;
+			dl = enc_cnt[0] - bl;
+			dr = enc_cnt[1] - br;
+			tm_printf((UB*)"[DIST] run %d: dist_mm=%d  enc_l=%d enc_r=%d - read the ruler at the front axle now\n",
+				  k, d, dl, dr);
+			TEST_CHECK("S1-M21", dl > 0 && dr > 0 &&
+				   d >= S1_DIST_GOAL_MM && d <= (S1_DIST_GOAL_MM * 115) / 100,
+				   "drove forward on both wheels and stopped near the goal (compare dist_mm with the ruler)");
+		}
+		tm_printf((UB*)"[DIST] if the ruler differs: WHEEL_MM_PER_REV = %d x ruler_mm / dist_mm\n",
+			  WHEEL_MM_PER_REV);
 	}
 #endif
 #if S1_TEST_TURN_BTN
