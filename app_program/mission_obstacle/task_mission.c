@@ -55,9 +55,7 @@ LOCAL void publish(const MISSION *m)
 	app_state.obs_width_mm = m->obs_width_mm;
 	app_state.obs_side = m->obs_side;
 	app_state.ir_line = m->ir_line;
-	/* the encoder bit belongs to Motor, the others to Mission */
-	app_state.fault_flags = (UB)((app_state.fault_flags & FAULT_ENCODER) |
-				     (m->fault_flags & ~FAULT_ENCODER));
+	fault_write_locked(FAULT_OWN_MISSION, m->fault_flags);
 	state_unlock();
 }
 
