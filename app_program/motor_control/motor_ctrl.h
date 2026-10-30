@@ -13,9 +13,9 @@
 #define MOTOR_CTRL_H
 
 /* ---- Mechanics [CAL] ---- */
-#define ENC_COUNTS_PER_REV	2654	/* measured 2026-10-28: L 2660, R 2647 */	/* quadrature counts per wheel turn (x4 decoding) */
-#define WHEEL_MM_PER_REV	201	/* 3.14 x 64 mm, estimated; refine in B1 */	/* wheel circumference, mm (65 mm wheel) */
-#define TRACK_MM10		1059	/* effective pivot track, 0.1 mm (1057 = 105.7 mm): 110 measured; tuned 2026-10-30 so 4 x 90 deg = 360 [CAL] */
+#define ENC_COUNTS_PER_REV	2654	/* counts per wheel turn (x4 decoding); measured 2026-10-28: L 2660, R 2647 */
+#define WHEEL_MM_PER_REV	216	/* wheel circumference, mm; S1-M21 2026-10-30: 490 mm by ruler, 456 by count at 201 */
+#define TRACK_MM10		1138	/* effective pivot track, 0.1 mm (1138 = 113.8 mm); 110 measured; 4 x 90 deg = 360. Scale with WHEEL_MM_PER_REV [CAL] */
 #define ENC_SIGN_LEFT		(+1)	/* flip if the count runs backwards */
 #define ENC_SIGN_RIGHT		(+1)
 
