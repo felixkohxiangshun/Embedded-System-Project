@@ -46,6 +46,7 @@ Define a test here before running it. Test IDs never change.
 | S1-M18 | NAV_BYPASS runs every segment, both sides | IF-08, FR-03 | auto | `S1_TEST_CMDS`: bypass right then left, width 100 mm. | `[TEST] S1-M18a/b PASS`: first turn the right way, ends STOPPED, `cmd_done_seq` +1 |
 | S1-M19 | bypass path geometry on the floor | FR-03, NFR-15 | manual + auto | Build with `S1_TEST_CMDS 0`, `S1_TEST_BYPASS 1`. Mark start position and heading; measure after each side. | ends 250 mm ahead on the start line, sideways error and heading error recorded (target ±5°) |
 | S1-M20 | full run with Mission: line follow → barcode turn → resume → obstacle bypass → resume | IF-08, IF-10, IF-11 | manual | Normal build (`TEST=1` off) on the course; watch telemetry `state`. | Motor follows every command; Mission never waits on a `cmd_done_seq` that does not move |
+| S1-M21 | encoder distance `dist_mm` agrees with a ruler | FR-12, FR-16 | manual + auto | Build with `S1_TEST_DIST 1`, car on the floor beside a 50 cm ruler, Mission paused by the test. Front axle on 0; the car drives about 450 mm and stops; read the ruler at the front axle. 3 runs. | `[TEST] S1-M21 PASS` (moved forward, stopped near 450 mm); ruler within ±3 % of the printed `dist_mm` (±14 mm) in every run. Otherwise correct `WHEEL_MM_PER_REV` = 201 × ruler ÷ `dist_mm` |
 
 *Method:* **auto** = `TEST_CHECK` in code, result printed on the console
 (`make TEST=1`); **host** = the same check also runs on a PC (`testing/host`);
@@ -63,3 +64,6 @@ Add a new row for every run. Never edit or delete old rows.
 | 2026-10-30 | S1-U01, S1-U02, S1-U04, S1-U05, S1-U06, S1-U07, S1-U08, S1-U09, S1-M11a … S1-M18b | *(uncommitted)* | Dave | PASS | `logs/2026-10-30_cmds2.txt` | first on-target run of S1-U01..U09; S1-M11..M18 repeated, same numbers within a few counts |
 | 2026-10-30 | S1-U03 | *(uncommitted)* | Dave | FAIL | `logs/2026-10-30_cmds2.txt` | test too strict, not a conversion bug: 2654/10 = 265 counts per tick -> 2007 mm/s, test expects exactly 2010 |
 | 2026-10-30 | S1-U03, S1-H02 (and all host tests) | *(uncommitted)* | *(Claude, host run)* | PASS | `make -C testing/host run` | tests now allow 1 % for integer rounding; host run 90 passed, 0 failed. S1-U03 still to be re-run on the board |
+| 2026-10-30 | S1-U01 … S1-U09 (incl. S1-U03 on target) | *(uncommitted)* | Dave | PASS | `logs/2026-10-30_dist.txt` | SUMMARY 12 passed, 0 failed |
+| 2026-10-30 | S1-M21 | *(uncommitted)* | Dave | FAIL | `logs/2026-10-30_dist.txt` | dist_mm 455/455/457 vs ruler ~490 mm: −7 %. Calibrated WHEEL_MM_PER_REV 201 → 216 and TRACK_MM10 1059 → 1138 (same turn goals). Re-run to confirm |
+| 2026-10-30 | S1-M21 | *(uncommitted)* | Dave | PASS | `logs/2026-10-30_dist2.txt` | after calibration (WHEEL_MM_PER_REV 216, TRACK_MM10 1138): dist_mm 456/455/456 vs ruler ~460 mm, −0.9 % (limit ±3 %); wheels within 12 counts |
