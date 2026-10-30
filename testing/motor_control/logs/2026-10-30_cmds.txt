@@ -1,0 +1,28 @@
+S1_TEST_CMDS run, wheels lifted, make TEST=1 (DUTY_MAX 600, TRACK_MM 106, TURN_COAST_COUNTS 15)
+Console capture from the VS Code Serial Monitor, filtered to the [CMDS] and
+motor_control [TEST] lines; [telemetry] lines removed.  The capture started
+~3 s after boot, so S1-U01..S1-U09 are missing (the summary counts them).
+
+[CMDS] counts/s  steer 0: L=1625 R=1630  +500: L=2033 R=1222  -500: L=1225 R=2013
+[TEST] S1-M11a PASS  NAV_STEER +500 -> left wheel >= 20% faster (curves right)
+[TEST] S1-M11b PASS  NAV_STEER -500 -> right wheel >= 20% faster (curves left)
+[CMDS] counts/s  steer +1000: L=2420 R=831  +2000: L=2439 R=806
+[TEST] S1-M12 PASS  NAV_STEER +2000 drives the same as +1000 (clamped)
+[CMDS] NAV_SLOW: 61 mm/s (target 60)
+[TEST] S1-M13a PASS  NAV_SLOW -> slow speed within 15%
+[CMDS] NAV_RESUME: 123 mm/s (target 120)
+[TEST] S1-M13b PASS  NAV_RESUME -> normal speed within 15%
+[TEST] S1-M14a PASS  NAV_TURN while DRIVING -> TURNING
+[TEST] S1-M14b PASS  turn ends STOPPED and cmd_done_seq goes up by exactly 1
+[TEST] S1-M14c PASS  EVT_RESUME after the turn -> DRIVING
+[CMDS] busy turn: enc_l=1093 enc_r=-1102 state=0 done_seq +1
+[TEST] S1-M15 PASS  NAV_TURN / NAV_BYPASS during a turn ignored; first turn finishes
+[TEST] S1-M16a PASS  EVT_STOP mid-turn -> STOPPED within 20 ms
+[TEST] S1-M16b PASS  aborted turn: wheels still, cmd_done_seq unchanged
+[TEST] S1-M17 PASS  EVT_START during a turn ignored; turn finishes
+[CMDS] bypass side=1: first 300 ms enc_l=270 enc_r=-284, took 11620 ms, state=0 done_seq +1
+[TEST] S1-M18a PASS  NAV_BYPASS right: turns right first, ends STOPPED, done +1
+[CMDS] bypass side=-1: first 300 ms enc_l=-266 enc_r=284, took 11630 ms, state=0 done_seq +1
+[TEST] S1-M18b PASS  NAV_BYPASS left: turns left first, ends STOPPED, done +1
+[CMDS] done
+[TEST] motor_control SUMMARY 22 passed, 1 failed
