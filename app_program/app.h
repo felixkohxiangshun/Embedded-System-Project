@@ -23,14 +23,14 @@
  *  GP0/GP1 stay free (they are UART0 only with "make CRASH_REPORT=1").
  *  Every pin is claimed in TEAM.md section 2.
  * --------------------------------------------------------------------- */
-#define PIN_ENC_LEFT_A		2	/* quadrature encoder, left motor  */
-#define PIN_ENC_LEFT_B		3
-#define PIN_ENC_RIGHT_A		6	/* quadrature encoder, right motor */
-#define PIN_ENC_RIGHT_B		7
+#define PIN_ENC_LEFT_A		7	/* quadrature encoder, left motor  */
+#define PIN_ENC_LEFT_B		6
+#define PIN_ENC_RIGHT_A		2	/* quadrature encoder, right motor */
+#define PIN_ENC_RIGHT_B		3
 #define PIN_MOT_LEFT_FWD	8	/* PWM slice 4 channel A */
 #define PIN_MOT_LEFT_BWD	9	/* PWM slice 4 channel B */
-#define PIN_MOT_RIGHT_FWD	10	/* PWM slice 5 channel A */
-#define PIN_MOT_RIGHT_BWD	11	/* PWM slice 5 channel B */
+#define PIN_MOT_RIGHT_FWD	11	/* PWM slice 5 channel B */
+#define PIN_MOT_RIGHT_BWD	10	/* PWM slice 5 channel A */
 #define PIN_SERVO_PWM		12	/* PWM slice 6 channel A */
 #define PIN_IMU_SDA		4	/* I2C0 (set in i2c_cnf_sysdep.h) */
 #define PIN_IMU_SCL		5
