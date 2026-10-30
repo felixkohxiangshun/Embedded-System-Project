@@ -13,9 +13,9 @@
 #define MOTOR_CTRL_H
 
 /* ---- Mechanics [CAL] ---- */
-#define ENC_COUNTS_PER_REV	960	/* quadrature counts per wheel turn (x4 decoding) */
-#define WHEEL_MM_PER_REV	204	/* wheel circumference, mm (65 mm wheel) */
-#define TRACK_MM		130	/* distance between the two wheels, mm */
+#define ENC_COUNTS_PER_REV	2654	/* measured 2026-10-28: L 2660, R 2647 */	/* quadrature counts per wheel turn (x4 decoding) */
+#define WHEEL_MM_PER_REV	201	/* 3.14 x 64 mm, estimated; refine in B1 */	/* wheel circumference, mm (65 mm wheel) */
+#define TRACK_MM10		1059	/* effective pivot track, 0.1 mm (1057 = 105.7 mm): 110 measured; tuned 2026-10-30 so 4 x 90 deg = 360 [CAL] */
 #define ENC_SIGN_LEFT		(+1)	/* flip if the count runs backwards */
 #define ENC_SIGN_RIGHT		(+1)
 
@@ -25,6 +25,7 @@
 #define SPEED_SLOW_MMPS		60
 #define SPEED_TURN_MMPS		60
 #define STEER_GAIN_MMPS		60	/* wheel speed difference at full steer */
+#define TURN_COAST_COUNTS	15	/* a pivot coasts this far after the motors cut, so cut early [CAL] */
 
 /* ---- Control loop ---- */
 #define MOTOR_TICK_MS		10	/* NFR-14: PID loop every 10 ms */
@@ -36,11 +37,21 @@
 #define PID_SCALE		256
 #define PID_INTEG_MAX		2000
 #define DUTY_FF_PER_MMPS	3	/* feed-forward: permille per mm/s [CAL] */
-#define DUTY_MAX		1000
+#define DUTY_MAX		600	/* FF at full steer (180 mm/s) is 540, plus PID headroom [CAL] */
 
-/* Encoder fault: commanded above this duty but not one count for this long */
+/* Motor faults: a wheel commanded above this duty that gives not one count
+   for this long is "stuck".  One wheel stuck while the other turns means its
+   encoder is broken (FAULT_ENCODER); both stuck means the car is blocked
+   (FAULT_MOTOR_STALL).  [CAL] */
 #define ENC_FAULT_DUTY		300
 #define ENC_FAULT_TICKS		30	/* 300 ms */
+
+/* Mission watchdog (Tribunal 1): while DRIVING, Mission forwards a MSG_NAV
+   every line cycle (10 ms).  If they stop arriving the car slows down, then
+   stops and reports FAULT_MISSION_TMO until the next message.
+   [agree the values with Mission] */
+#define NAV_SLOW_TICKS		20	/* 200 ms without MSG_NAV -> slow speed */
+#define NAV_STOP_TICKS		50	/* 500 ms without MSG_NAV -> stop       */
 
 /* Straight-line drift trim (FR-13) */
 #define TRIM_DEADBAND		30	/* |steer| below this counts as straight */
@@ -66,5 +77,19 @@ IMPORT INT  mm_to_counts(INT mm);
 IMPORT INT  counts_to_deg(INT counts);		/* inverse of deg_to_counts */
 IMPORT INT  deg_to_counts(INT deg);		/* per wheel, for a pivot turn */
 IMPORT INT  clamp_i(INT v, INT lo, INT hi);
+
+/* Motor fault monitor: one stuck counter per wheel */
+typedef struct {
+	INT	stuck[2];
+} FAULT_MON;
+
+IMPORT void fault_mon_reset(FAULT_MON *f);
+/* Feed one 10 ms tick: the duty just applied and the encoder counts seen in
+   that tick, per wheel.  Returns 0, FAULT_ENCODER or FAULT_MOTOR_STALL. */
+IMPORT UB   fault_mon_step(FAULT_MON *f, const INT duty[2], const INT delta[2]);
+
+/* Speed allowed after 'idle_ticks' ticks without a MSG_NAV: speed_set, then
+   at most SPEED_SLOW_MMPS, then 0. */
+IMPORT INT  nav_watchdog_speed(INT idle_ticks, INT speed_set);
 
 #endif /* MOTOR_CTRL_H */
