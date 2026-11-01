@@ -12,9 +12,9 @@
 #include "lb_config.h"
 #include "line_ctrl.h"
 
-/* The position of the line is measured from the left sensor (-1000) to the
- * centre sensor (0), so the sensor spacing is 1000 position units. */
-#define POSITION_LEFT_SENSOR    (-1000)
+/* The position of the line is measured from the centre sensor (-1000) to the
+ * right sensor (0), so the sensor spacing is 1000 position units. */
+#define POSITION_CENTRE_SENSOR    (-1000)
 
 /* Largest count of junction ticks that is remembered (avoids overflow). */
 #define JUNCTION_TICKS_CAP      1000u
@@ -23,11 +23,11 @@
 
 /* Private function prototypes. */
 static void update_flags(line_ctrl_t * p_ctrl,
-                         int32_t dark_left,
                          int32_t dark_centre,
+                         int32_t dark_right,
                          int32_t mass);
 static int32_t estimate_error(line_ctrl_t const * p_ctrl,
-                              int32_t dark_left,
+                              int32_t dark_centre,
                               int32_t mass);
 static int32_t compute_steer(line_ctrl_t * p_ctrl, int32_t err);
 static int32_t clamp_i32(int32_t value, int32_t low, int32_t high);
@@ -72,8 +72,8 @@ line_ctrl_restart (line_ctrl_t * p_ctrl, int32_t last_steer)
 
 void
 line_ctrl_update (line_ctrl_t * p_ctrl,
-                  int32_t dark_left,
                   int32_t dark_centre,
+                  int32_t dark_right,
                   line_ctrl_out_t * p_out)
 {
     int32_t mass = 0;
@@ -81,13 +81,13 @@ line_ctrl_update (line_ctrl_t * p_ctrl,
 
     if ((NULL != p_ctrl) && (NULL != p_out))
     {
-        mass = dark_left + dark_centre;
+        mass = dark_centre + dark_right;
 
-        update_flags(p_ctrl, dark_left, dark_centre, mass);
+        update_flags(p_ctrl, dark_centre, dark_right, mass);
 
         if (p_ctrl->b_seen)
         {
-            err = estimate_error(p_ctrl, dark_left, mass);
+            err = estimate_error(p_ctrl, dark_centre, mass);
             p_ctrl->steer = compute_steer(p_ctrl, err);
         }
         else
@@ -121,8 +121,8 @@ line_ctrl_update (line_ctrl_t * p_ctrl,
  */
 static void
 update_flags (line_ctrl_t * p_ctrl,
-              int32_t dark_left,
               int32_t dark_centre,
+              int32_t dark_right,
               int32_t mass)
 {
     /* Seen: switch on at SEEN_ON, off only below SEEN_OFF. */
@@ -149,8 +149,8 @@ update_flags (line_ctrl_t * p_ctrl,
     }
 
     /* Junction: both sensors dark for several ticks in a row. */
-    if ((dark_left >= LB_JUNCTION_DARK_MIN)
-        && (dark_centre >= LB_JUNCTION_DARK_MIN))
+    if ((dark_centre >= LB_JUNCTION_DARK_MIN)
+        && (dark_right >= LB_JUNCTION_DARK_MIN))
     {
         if (p_ctrl->junction_ticks < JUNCTION_TICKS_CAP)
         {
@@ -170,17 +170,17 @@ update_flags (line_ctrl_t * p_ctrl,
 }
 
 /*!
- * @brief Line position error, -500 (under left) to +500 (under centre).
+ * @brief Line position error, -500 (under centre) to +500 (under right).
  *
- * Position = -1000 * left / (left + centre): the share of the darkness that
- * the left sensor sees.  The mass cancels, so a faded line gives the same
+ * Position = -1000 * centre / (centre + right): the share of the darkness that
+ * the centre sensor sees.  The mass cancels, so a faded line gives the same
  * position as a fresh one.  The caller guarantees mass > 0 (the line is
  * seen, so the mass is at least LB_MASS_SEEN_OFF).
  */
 static int32_t
-estimate_error (line_ctrl_t const * p_ctrl, int32_t dark_left, int32_t mass)
+estimate_error (line_ctrl_t const * p_ctrl, int32_t dark_centre, int32_t mass)
 {
-    int32_t position = (POSITION_LEFT_SENSOR * dark_left) / mass;
+    int32_t position = (POSITION_CENTRE_SENSOR * dark_centre) / mass;
     int32_t err      = position - LB_LINE_TARGET;
 
     /* On a junction both sensors are dark and the position means nothing:
@@ -279,6 +279,73 @@ clamp_i32 (int32_t value, int32_t low, int32_t high)
     }
 
     return (result);
+}
+
+void
+line_junction_init (line_junction_t * p_jct)
+{
+    if (NULL != p_jct)
+    {
+        p_jct->start_mm = 0u;
+        p_jct->b_armed  = false;
+        p_jct->b_in_run = false;
+    }
+    else
+    {
+        /* NULL pointer: nothing to reset. */
+    }
+
+    return;
+}
+
+bool
+line_junction_step (line_junction_t * p_jct,
+                    int32_t dark_centre,
+                    int32_t dark_right,
+                    uint32_t dist_mm)
+{
+    bool b_found = false;
+
+    if (NULL == p_jct)
+    {
+        /* NULL pointer: nothing to report. */
+    }
+    else if ((dark_centre < LB_BRANCH_DARK_MIN)
+             || (dark_right < LB_BRANCH_DARK_MIN))
+    {
+        p_jct->b_armed  = true;
+        p_jct->b_in_run = false;
+    }
+    else if (p_jct->b_armed)
+    {
+        if (!p_jct->b_in_run)
+        {
+            p_jct->b_in_run = true;
+            p_jct->start_mm = dist_mm;
+        }
+        else
+        {
+            /* The dark run goes on. */
+        }
+
+        /* Unsigned subtraction stays correct if the distance wraps. */
+        if ((dist_mm - p_jct->start_mm) >= (uint32_t)LB_BRANCH_RUN_MM)
+        {
+            p_jct->b_armed  = false;
+            p_jct->b_in_run = false;
+            b_found = true;
+        }
+        else
+        {
+            /* Too short so far: could still be a speck. */
+        }
+    }
+    else
+    {
+        /* Already reported: wait for white. */
+    }
+
+    return (b_found);
 }
 
 /*** end of file ***/

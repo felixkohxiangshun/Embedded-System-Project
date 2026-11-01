@@ -35,13 +35,16 @@ typedef struct
 {
     line_ctrl_t  ctrl;          /* position error and PD steering */
     line_recov_t recov;         /* faded / lost / veered recovery */
+    line_junction_t junction;   /* side branch under the line sensors */
+    uint32_t     dist_mm;       /* last distance read from app_state */
+    bool         b_jct_pending; /* branch found, Mission not told yet */
     uint32_t     last_us;       /* time of the previous tick */
     bool         b_first;       /* no previous tick yet */
     bool         b_following;   /* Mission follows the line right now */
 } line_run_t;
 
-static ir_calib_t const g_cal_left   = { LB_WHITE_LEFT, LB_BLACK_LEFT };
 static ir_calib_t const g_cal_centre = { LB_WHITE_CENTER, LB_BLACK_CENTER };
+static ir_calib_t const g_cal_right  = { LB_WHITE_RIGHT, LB_BLACK_RIGHT };
 
 static line_run_t g_run;
 
@@ -50,11 +53,13 @@ static void     run_init(line_run_t * p_run);
 static void     run_tick(line_run_t * p_run);
 static int32_t  elapsed_ms(line_run_t * p_run);
 static bool     mission_follows_line(bool b_previous);
-static void     post_steer(line_recov_out_t const * p_recov);
+static uint32_t read_distance(uint32_t previous_mm);
+static void     post_steer(line_run_t * p_run,
+                           line_recov_out_t const * p_recov);
 static void     update_stats(line_ctrl_out_t const * p_ctrl,
                              line_recov_out_t const * p_recov,
-                             int32_t dark_left,
                              int32_t dark_centre,
+                             int32_t dark_right,
                              int32_t dt_ms);
 
 void
@@ -110,14 +115,14 @@ run_tick (line_run_t * p_run)
     line_recov_in_t  recov_in;
     bool             b_follow = false;
     int32_t          dt_ms    = elapsed_ms(p_run);
-    int32_t          dark_l   = 0;
     int32_t          dark_c   = 0;
+    int32_t          dark_r   = 0;
 
     /* 1. SAMPLING: 10 ms averages, normalised to 0 (paper) to 1000 (line). */
-    dark_l = ir_calib_darkness(&g_cal_left,
-                               ir_driver_get_dark(IR_CHANNEL_LEFT));
     dark_c = ir_calib_darkness(&g_cal_centre,
                                ir_driver_get_dark(IR_CHANNEL_CENTRE));
+    dark_r = ir_calib_darkness(&g_cal_right,
+                               ir_driver_get_dark(IR_CHANNEL_RIGHT));
 
     /* A fresh start whenever Mission begins to follow the line again (after
      * idle, a turn, an obstacle bypass): old memories would steer wrongly. */
@@ -126,6 +131,8 @@ run_tick (line_run_t * p_run)
     {
         line_ctrl_restart(&p_run->ctrl, 0);
         line_recov_init(&p_run->recov);
+        line_junction_init(&p_run->junction);
+        p_run->b_jct_pending = false;
     }
     else
     {
@@ -134,7 +141,23 @@ run_tick (line_run_t * p_run)
     p_run->b_following = b_follow;
 
     /* 2. STEERING: position error and PD steering. */
-    line_ctrl_update(&p_run->ctrl, dark_l, dark_c, &ctrl_out);
+    line_ctrl_update(&p_run->ctrl, dark_c, dark_r, &ctrl_out);
+
+    /* Side branch: only while the car follows the line. */
+    p_run->dist_mm = read_distance(p_run->dist_mm);
+    if (b_follow
+        && line_junction_step(&p_run->junction,
+                              dark_c,
+                              dark_r,
+                              p_run->dist_mm))
+    {
+        p_run->b_jct_pending = true;
+        g_lb_stats.line_junctions++;
+    }
+    else
+    {
+        /* No new branch. */
+    }
 
     /* 3. Recovery: pass the steering through, or coast / search. */
     recov_in.b_seen           = ctrl_out.b_seen;
@@ -145,8 +168,8 @@ run_tick (line_run_t * p_run)
     line_recov_step(&p_run->recov, &recov_in, &recov_out);
 
     /* 4. Post to Mission and publish the counters. */
-    post_steer(&recov_out);
-    update_stats(&ctrl_out, &recov_out, dark_l, dark_c, dt_ms);
+    post_steer(p_run, &recov_out);
+    update_stats(&ctrl_out, &recov_out, dark_c, dark_r, dt_ms);
 
     return;
 }
@@ -236,11 +259,38 @@ mission_follows_line (bool b_previous)
 }
 
 /*!
+ * @brief Distance driven so far.  If the lock is busy the last value is kept.
+ *
+ * @param[in] previous_mm  The value of the previous tick.
+ *
+ * @return Distance in millimetres.
+ */
+static uint32_t
+read_distance (uint32_t previous_mm)
+{
+    uint32_t dist_mm = previous_mm;
+
+    if (E_OK == state_lock(TMO_POL))
+    {
+        /* Cast: dist_mm is the kernel's UW, an unsigned 32-bit value. */
+        dist_mm = (uint32_t)app_state.dist_mm;
+        state_unlock();
+    }
+    else
+    {
+        /* Lock busy: keep the previous value. */
+    }
+
+    return (dist_mm);
+}
+
+/*!
  * @brief Send MSG_STEER to Mission.  A full buffer drops the message: Mission
- *        is behind and the next tick brings a newer value anyway.
+ *        is behind and the next tick brings a newer value anyway.  A branch
+ *        report is kept and sent again until it is delivered.
  */
 static void
-post_steer (line_recov_out_t const * p_recov)
+post_steer (line_run_t * p_run, line_recov_out_t const * p_recov)
 {
     MSG_STEER msg;
 
@@ -248,7 +298,23 @@ post_steer (line_recov_out_t const * p_recov)
     msg.steer = (INT)p_recov->steer;
     msg.flags = (UB)p_recov->flags;
 
-    (void)MBF_SEND(mbf_steer, msg);
+    if (p_run->b_jct_pending)
+    {
+        msg.flags |= STEER_F_JUNCTION;
+    }
+    else
+    {
+        /* No branch to report. */
+    }
+
+    if (E_OK == MBF_SEND(mbf_steer, msg))
+    {
+        p_run->b_jct_pending = false;
+    }
+    else
+    {
+        /* Full: a pending branch report goes out with the next tick. */
+    }
 
     return;
 }
@@ -256,13 +322,13 @@ post_steer (line_recov_out_t const * p_recov)
 static void
 update_stats (line_ctrl_out_t const * p_ctrl,
               line_recov_out_t const * p_recov,
-              int32_t dark_left,
               int32_t dark_centre,
+              int32_t dark_right,
               int32_t dt_ms)
 {
     g_lb_stats.line_ticks++;
-    g_lb_stats.line_dark_left   = dark_left;
-    g_lb_stats.line_dark_centre = dark_centre;
+    g_lb_stats.line_dark_centre   = dark_centre;
+    g_lb_stats.line_dark_right = dark_right;
     g_lb_stats.line_err         = p_ctrl->err;
     g_lb_stats.line_steer       = p_recov->steer;
     /* Casts: the enum value is 0 to 2 and dt_ms is 1 to LB_DT_MAX_MS, so both

@@ -22,7 +22,7 @@ height, detects shocks, detects obstacle and perform obstacle avoidance, and rep
 | Part | Used for | Pins |
 |---|---|---|
 | 2 DC motors with quadrature encoders | driving and speed feedback | motors GP8 to GP11, encoders GP2, GP3, GP6, GP7 |
-| 3 IR sensors | left and centre follow the line, right reads barcodes | GP26, GP27, GP28 (ADC) |
+| 3 IR sensors | seen from behind the car: centre and right follow the line, left reads barcodes | centre GP27 (ADC), right GP26 (ADC), barcode GP28 (ADC) |
 | LSM303DLHC IMU | hump height and shock | GP4 (SDA), GP5 (SCL) |
 | HC-SR04 ultrasonic sensor on a servo | obstacle detection and profiling | echo GP16, trigger GP17, servo GP12 |
 | Start/stop button, status LED | operator control | GP20, GP18 |

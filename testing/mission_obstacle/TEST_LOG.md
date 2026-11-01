@@ -26,6 +26,7 @@ Define a test here before running it. Test IDs never change.
 | S5-H01 | a timed state leaves by timeout (OBSTACLE_SCAN) | FR-19 | host | `host_tests.c` | `PASS` from `make -C testing/host run` |
 | S5-H02 | box extending left → go right | FR-09 | host | `host_tests.c` | `PASS` from `make -C testing/host run` |
 | S5-H04 | echo capture: rising + falling edge give the width; timer wrap; stale and post-timeout edges ignored; 0 / > 12 ms = no echo | FR-07, Tribunal 1 (R1) | host | `host_tests.c` | `PASS` from `make -C testing/host run` |
+| S5-H05 | a side branch: drive straight on for `JUNCTION_CREEP_MM`, no line fault meanwhile, then turn left 90, stop and return to IDLE (floor test) | junction | host | `host_tests.c` | `PASS` from `make -C testing/host run` |
 | S5-M06 | the echo no longer busy-waits: IMU keeps its 10 ms period while the sensor is unplugged (no echo, 30 ms wait per ping) — count `s3_ticks` over 10 s | R1, A2 | manual | Unplug ECHO, run 10 s, read `s3_ticks`. | ≥ 990 ticks (record the old busy-wait build for comparison) |
 | S5-M01 | HC-SR04 distance at 10, 20, 30 cm within ±1 cm (assumption A1); ECHO divider fitted | FR-07, A1 | manual | Static obstacle at measured distances. | ±1 cm |
 | S5-M02 | servo reaches −60, −30, 0, +30, +60°; set the sign and `SERVO_CENTER_US` | FR-08 | manual | Watch the sensor through a sweep. | angles within ±5° |

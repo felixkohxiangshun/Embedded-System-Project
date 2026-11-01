@@ -11,6 +11,8 @@
  *	  S1_TEST_BYPASS    S1-M19         car on the floor
  *	  S1_TEST_DIST      S1-M21         car on the floor beside a ruler
  *	  S1_TEST_TURN_BTN  button turns   car on the floor, never returns
+ *	  S1_TEST_FWD_BTN   GP21 forward   car on the floor, never returns
+ *	                    (switch and speed are in motor_ctrl.h)
  */
 
 #include "motor_control.h"
@@ -32,7 +34,7 @@
 
 #if APP_TEST
 
-#if S1_TEST_CMDS || S1_TEST_BYPASS || S1_TEST_DIST
+#if S1_TEST_CMDS || S1_TEST_BYPASS || S1_TEST_DIST || S1_TEST_FWD_BTN
 IMPORT ID tid_mission;
 
 #define S1_BYPASS_WIDTH_MM	100	/* obstacle width sent with NAV_BYPASS */
@@ -129,7 +131,7 @@ LOCAL BOOL s1_bypass(INT side)
 	return ok && (s1_state == MOT_STOPPED) && (s1_done_seq() == seq0 + 1U);
 }
 #endif /* S1_TEST_CMDS || S1_TEST_BYPASS */
-#endif /* S1_TEST_CMDS || S1_TEST_BYPASS || S1_TEST_DIST */
+#endif /* S1_TEST_CMDS || S1_TEST_BYPASS || S1_TEST_DIST || S1_TEST_FWD_BTN */
 
 #if S1_TEST_CMDS
 /* Drive 2 s at 'steer', sending NAV_STEER every 50 ms so the Mission
@@ -560,7 +562,47 @@ EXPORT void motor_control_test(void)
 		}
 	}
 #endif
- 
+#if S1_TEST_FWD_BTN
+	/* GP21 starts and stops a straight run at SPEED_NORMAL_MMPS.  No line
+	   tracking: Mission is paused and the steering stays 0. */
+	{
+		UW   in, prev;
+		BOOL driving = FALSE;
+		INT  t = 0;
+
+		s1_pause_mission();
+		gpio_set_pin(PIN_BTN_2, GPIO_MODE_IN);
+		set_w(GPIO(PIN_BTN_2), GPIO_PUE);	/* active low, like GP20 */
+		tk_set_flg(flg_evt, EVT_STOP);
+		tk_dly_tsk(100);
+		prev = in_w(GPIO_IN);
+		tm_printf((UB*)"[FWD] ready: GP21 = start/stop at %d mm/s\n", SPEED_NORMAL_MMPS);
+
+		while (1) {
+			in = in_w(GPIO_IN);
+			/* pressed now (low) and not pressed last time */
+			if (((in & (1U << PIN_BTN_2)) == 0U) && ((prev & (1U << PIN_BTN_2)) != 0U)) {
+				driving = driving ? FALSE : TRUE;
+				tk_set_flg(flg_evt, driving ? EVT_START : EVT_STOP);
+				tm_printf((UB*)"[FWD] %s\n", driving ? "start" : "stop");
+				tk_dly_tsk(200);		/* ride out the switch bounce */
+				in = in_w(GPIO_IN);
+			}
+			prev = in;
+			if (driving && (s1_state == MOT_ENCODER_FAULT)) {
+				driving = FALSE;
+				tk_set_flg(flg_evt, EVT_STOP);	/* clear it for the next try */
+				tm_printf((UB*)"[FWD] stopped: wheel stall or encoder fault\n");
+			}
+			if (driving && ((t % 100) == 0)) {
+				s1_nav(NAV_STEER, 0, 0);	/* keep the Mission watchdog fed */
+			}
+			t += 20;
+			tk_dly_tsk(20);
+		}
+	}
+#endif
+
 	TEST_SUMMARY("motor_control");
 }
 

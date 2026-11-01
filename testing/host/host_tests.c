@@ -207,6 +207,24 @@ int main(void)
 		a = clear_act(); mission_on_button(&m, &a);
 		CHECK_T("S5-U01c", m.state == SYS_IDLE && (a.evt_flags & EVT_STOP), "button -> IDLE");
 		mission_on_button(&m, &a); a = clear_act();
+		s.steer = 500; s.flags = STEER_F_JUNCTION; mission_on_steer(&m, &s, &a);
+		CHECK_T("S5-H05a", m.state == SYS_LINE_FOLLOW && a.n_nav == 1 && a.nav[0].type == NAV_STEER &&
+			a.nav[0].arg == 0, "side branch: drives straight on");
+		a = clear_act(); s.flags = STEER_F_LOST | STEER_F_TIMEOUT; mission_on_steer(&m, &s, &a);
+		CHECK_T("S5-H05b", m.state == SYS_LINE_FOLLOW && a.nav[0].arg == 0, "no line ahead: no fault during the creep");
+		a = clear_act(); mission_on_distance(&m, 1000, &a);
+		mission_on_distance(&m, 1000 + JUNCTION_CREEP_MM - 1, &a);
+		CHECK_T("S5-H05c", m.state == SYS_LINE_FOLLOW && !(a.evt_flags & EVT_STOP), "still driving 1 mm short");
+		mission_on_distance(&m, 1000 + JUNCTION_CREEP_MM, &a);
+		CHECK_T("S5-H05d", m.state == SYS_BARCODE_CMD && a.n_nav == 1 && a.nav[0].type == NAV_TURN &&
+			a.nav[0].arg == -90, "after the creep distance: turn left 90");
+		a = clear_act(); mission_on_tick(&m, 10, MOT_TURNING, 7, &a);
+		mission_on_tick(&m, 10, MOT_TURNING, 7, &a);
+		CHECK_T("S5-H05e", m.state == SYS_BARCODE_CMD && a.evt_flags == 0, "still turning");
+		mission_on_tick(&m, 10, MOT_STOPPED, 8, &a);
+		CHECK_T("S5-H05f", m.state == SYS_IDLE && (a.evt_flags & EVT_STOP) && !(a.evt_flags & EVT_RESUME),
+			"turn finished: stops and stays in IDLE");
+		s.flags = 0; a = clear_act(); mission_on_button(&m, &a); a = clear_act();
 		s.steer = 321; mission_on_steer(&m, &s, &a);
 		CHECK_T("S5-U02a", a.n_nav == 1 && a.nav[0].type == NAV_STEER && a.nav[0].arg == 321, "steering forwarded");
 		b.kind = BC_SEEN; b.cmd = 0; mission_on_barcode(&m, &b, &a);

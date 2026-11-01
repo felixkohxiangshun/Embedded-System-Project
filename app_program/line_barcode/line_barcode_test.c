@@ -9,8 +9,8 @@
  *  - S2-U09 the sampler runs at 1 kHz            (NFR-04)
  *  - S2-U10 the line task runs every 10 ms       (NFR-03)
  *  - S2-T03 the sampler fits its time budget
- *  - S2-T04 the sensors deliver plausible values (ADC for left and centre,
- *           GPIO level for the right barcode sensor)
+ *  - S2-T04 the sensors deliver plausible values (ADC for centre and right,
+ *           GPIO level for the barcode sensor)
  *  - INT-01 30 edges injected into mbf_edge are decoded and no edge is lost
  *
  * @par
@@ -119,9 +119,9 @@ line_barcode_test (void)
     uint32_t start_ticks  = 0u;
     uint32_t start_decoded = 0u;
     uint32_t start_drops  = 0u;
-    int32_t  dark_l       = 0;
     int32_t  dark_c       = 0;
     int32_t  dark_r       = 0;
+    int32_t  dark_b       = 0;
     bool     b_alive      = false;
 
     TEST_INIT();
@@ -153,24 +153,24 @@ line_barcode_test (void)
               (INT)g_lb_stats.sampler_max_us);
 
     /* S2-T04: the sensors are alive.  A converter or wiring fault shows as
-     * every sensor stuck at 0 or at 4095.  The right sensor is digital and
+     * every sensor stuck at 0 or at 4095.  The barcode sensor is digital and
      * reports one of two fixed counts, so it never reads exactly 0 or 4095. */
-    dark_l = ir_driver_get_dark(IR_CHANNEL_LEFT);
     dark_c = ir_driver_get_dark(IR_CHANNEL_CENTRE);
     dark_r = ir_driver_get_dark(IR_CHANNEL_RIGHT);
-    b_alive = ((dark_l > 20) && (dark_l < 4075))
-              || ((dark_c > 20) && (dark_c < 4075));
+    dark_b = ir_driver_get_dark(IR_CHANNEL_BARCODE);
+    b_alive = ((dark_c > 20) && (dark_c < 4075))
+              || ((dark_r > 20) && (dark_r < 4075));
 #if (LB_BC_USE_GPIO_LEVEL == 0)
     /* Only in analogue mode: the digital level is always one of the two
      * fixed counts, so including it would make this check always pass. */
-    b_alive = b_alive || ((dark_r > 20) && (dark_r < 4075));
+    b_alive = b_alive || ((dark_b > 20) && (dark_b < 4075));
 #endif
     TEST_CHECK("S2-T04", b_alive, "sensor readings are not stuck at 0 or 4095");
-    tm_printf((UB*)"       (dark scale now: left %d, centre %d, right %d)\n",
-              (INT)dark_l, (INT)dark_c, (INT)dark_r);
+    tm_printf((UB*)"       (dark scale now: centre %d, right %d, barcode %d)\n",
+              (INT)dark_c, (INT)dark_r, (INT)dark_b);
 
     /* INT-01 (IF-02): 30 edges injected into mbf_edge are decoded by the
-     * barcode task.  Keep the right sensor over white paper meanwhile. */
+     * barcode task.  Keep the barcode sensor over white paper meanwhile. */
     start_decoded = g_lb_stats.bc_decoded;
     start_drops   = g_lb_stats.edges_dropped;
     inject_code("NNWNNWNNW");                   /* the command 'B' */
@@ -199,6 +199,9 @@ line_barcode_test (void)
 }
 
 #if (LB_TEST_CALIBRATE != 0)
+/* A still sensor stays within about 20 counts; far more means it moved. */
+#define CAL_NOISE_MAX   200
+
 /*!
  * @brief Collect statistics of one sensor for a number of seconds.
  */
@@ -235,55 +238,61 @@ print_probe (char const * p_name, ir_calib_probe_t const * p_probe)
 static void
 run_guided_calibration (void)
 {
-    ir_calib_probe_t white_l;
     ir_calib_probe_t white_c;
     ir_calib_probe_t white_r;
-    ir_calib_probe_t line_l;
+    ir_calib_probe_t white_b;
     ir_calib_probe_t line_c;
-    ir_calib_probe_t ink_r;
+    ir_calib_probe_t line_r;
+    ir_calib_probe_t ink_b;
 
-    tm_printf((UB*)"\n=== CALIBRATION (about 20 s) ===\n");
-    tm_printf((UB*)"Step 1/3: put the car so ALL THREE sensors\n");
+    tm_printf((UB*)"\n=== CALIBRATION (about 50 s) ===\n");
+    tm_printf((UB*)"Step 1/4: put the car so ALL THREE sensors\n");
     tm_printf((UB*)"are over bare white paper. Measuring in 5 s ...\n");
     (void)tk_dly_tsk(5000);
-    collect(IR_CHANNEL_LEFT, 2, &white_l);
     collect(IR_CHANNEL_CENTRE, 2, &white_c);
     collect(IR_CHANNEL_RIGHT, 2, &white_r);
+    collect(IR_CHANNEL_BARCODE, 2, &white_b);
 
-    tm_printf((UB*)"Step 2/3: LEFT and CENTRE sensors over the black line.\n");
-    tm_printf((UB*)"Measuring in 8 s ...\n");
-    (void)tk_dly_tsk(8000);
-    collect(IR_CHANNEL_LEFT, 2, &line_l);
+    /* One sensor at a time: at the working spacing a plain line cannot fill
+     * both spots at once. */
+    tm_printf((UB*)"Step 2/4: CENTRE sensor over the middle of the line.\n");
+    tm_printf((UB*)"Then hands off. Measuring in 10 s ...\n");
+    (void)tk_dly_tsk(10000);
     collect(IR_CHANNEL_CENTRE, 2, &line_c);
 
-    tm_printf((UB*)"Step 3/3: RIGHT sensor over a black barcode bar\n");
+    tm_printf((UB*)"Step 3/4: RIGHT sensor over the middle of the line.\n");
+    tm_printf((UB*)"Then hands off. Measuring in 10 s ...\n");
+    (void)tk_dly_tsk(10000);
+    collect(IR_CHANNEL_RIGHT, 2, &line_r);
+
+    tm_printf((UB*)"Step 4/4: BARCODE sensor over a black barcode bar\n");
     tm_printf((UB*)"(its DO output must flip; check the module LED).\n");
     tm_printf((UB*)"Measuring in 8 s ...\n");
     (void)tk_dly_tsk(8000);
-    collect(IR_CHANNEL_RIGHT, 2, &ink_r);
+    collect(IR_CHANNEL_BARCODE, 2, &ink_b);
 
     tm_printf((UB*)"\nMeasured (dark scale, higher = darker):\n");
-    print_probe("left   white", &white_l);
-    print_probe("left   line ", &line_l);
     print_probe("centre white", &white_c);
     print_probe("centre line ", &line_c);
     print_probe("right  white", &white_r);
-    print_probe("right  ink  ", &ink_r);
+    print_probe("right  line ", &line_r);
+    print_probe("barcode white", &white_b);
+    print_probe("barcode ink  ", &ink_b);
 
     tm_printf((UB*)"\nPaste into app_program/line_barcode/lb_config.h:\n");
-    tm_printf((UB*)"  #define LB_WHITE_LEFT   %d\n",
-              (INT)ir_calib_probe_mean(&white_l));
-    tm_printf((UB*)"  #define LB_BLACK_LEFT   %d\n",
-              (INT)ir_calib_probe_mean(&line_l));
     tm_printf((UB*)"  #define LB_WHITE_CENTER %d\n",
               (INT)ir_calib_probe_mean(&white_c));
     tm_printf((UB*)"  #define LB_BLACK_CENTER %d\n",
               (INT)ir_calib_probe_mean(&line_c));
+    tm_printf((UB*)"  #define LB_WHITE_RIGHT  %d\n",
+              (INT)ir_calib_probe_mean(&white_r));
+    tm_printf((UB*)"  #define LB_BLACK_RIGHT  %d\n",
+              (INT)ir_calib_probe_mean(&line_r));
 #if (LB_BC_USE_GPIO_LEVEL == 0)
     tm_printf((UB*)"  #define LB_BC_WHITE_NOMINAL %d\n",
-              (INT)ir_calib_probe_mean(&white_r));
+              (INT)ir_calib_probe_mean(&white_b));
     tm_printf((UB*)"  #define LB_BC_BLACK_NOMINAL %d\n",
-              (INT)ir_calib_probe_mean(&ink_r));
+              (INT)ir_calib_probe_mean(&ink_b));
 #else
     /* The barcode sensor is digital: nothing to paste.  The mean shows
      * which of the two fixed counts the DO level maps to. */
@@ -293,7 +302,19 @@ run_guided_calibration (void)
     tm_printf((UB*)"   swapped, flip LB_BC_GPIO_DARK_IS_HIGH.)\n");
 #endif
 
-    if (ir_calib_probe_mean(&line_l) <= ir_calib_probe_mean(&white_l))
+    if ((ir_calib_probe_spread(&line_c) > CAL_NOISE_MAX)
+        || (ir_calib_probe_spread(&line_r) > CAL_NOISE_MAX))
+    {
+        tm_printf((UB*)"WARNING: a sensor moved while measured on the\n");
+        tm_printf((UB*)"line (noise above %d). Calibrate again.\n",
+                  (INT)CAL_NOISE_MAX);
+    }
+    else
+    {
+        /* The car stayed still on the line. */
+    }
+
+    if (ir_calib_probe_mean(&line_c) <= ir_calib_probe_mean(&white_c))
     {
         tm_printf((UB*)"WARNING: black reads LOWER than white. Flip\n");
         tm_printf((UB*)"LB_IR_DARK_IS_HIGH in lb_config.h, calibrate again.\n");
@@ -317,7 +338,7 @@ run_guided_calibration (void)
  * @brief Print one status line every 100 ms.  Save it with "screen -L" and
  *        plot it, or read it while pushing the car by hand.
  *
- * Columns: time(ms) dark-L dark-C err steer mode state barcode-edges
+ * Columns: time(ms) dark-centre dark-right dark-barcode barcode-edges
  *          decoded failed last
  */
 static void
@@ -325,18 +346,15 @@ run_trace (void)
 {
     int32_t step = 0;
 
-    tm_printf((UB*)"TRACE t_ms darkL darkC err steer mode "
-                   "bcEdges ok fail last\n");
+    tm_printf((UB*)"TRACE t_ms darkC darkR bcDark bcEdges ok fail last\n");
 
     for (step = 0; step < (LB_TEST_TRACE_SECONDS * 10); step++)
     {
-        tm_printf((UB*)"TRACE %d %d %d %d %d %d %d %d %d %c\n",
+        tm_printf((UB*)"TRACE %d %d %d %d %d %d %d %c\n",
                   (INT)(step * 100),
-                  (INT)g_lb_stats.line_dark_left,
                   (INT)g_lb_stats.line_dark_centre,
-                  (INT)g_lb_stats.line_err,
-                  (INT)g_lb_stats.line_steer,
-                  (INT)g_lb_stats.line_mode,
+                  (INT)g_lb_stats.line_dark_right,
+                  (INT)ir_driver_get_dark(IR_CHANNEL_BARCODE),
                   (INT)g_lb_stats.bc_edges,
                   (INT)g_lb_stats.bc_decoded,
                   (INT)g_lb_stats.bc_failed,

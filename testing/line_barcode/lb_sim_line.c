@@ -230,8 +230,8 @@ sensor_count (path_t const * p_path, uint32_t * p_hint,
     double   off = 0.0;
     uint32_t k = 0u;
     uint32_t idx = *p_hint;
-    double   white = (double)LB_WHITE_LEFT;
-    double   black = (double)LB_BLACK_LEFT;
+    double   white = (double)LB_WHITE_CENTER;
+    double   black = (double)LB_BLACK_CENTER;
 
     for (k = 0u; k < SPOT_SAMPLES; k++)
     {
@@ -258,10 +258,10 @@ lb_sim_line_run (lb_sim_line_cfg_t const * p_cfg, lb_sim_line_result_t * p_res)
 {
     static path_t     path;
     static double     delay_line[DELAY_MAX_MS];
-    ir_filter_t       filt_l;
     ir_filter_t       filt_c;
-    ir_calib_t        cal_l = { LB_WHITE_LEFT, LB_BLACK_LEFT };
+    ir_filter_t       filt_r;
     ir_calib_t        cal_c = { LB_WHITE_CENTER, LB_BLACK_CENTER };
+    ir_calib_t        cal_r = { LB_WHITE_RIGHT, LB_BLACK_RIGHT };
     line_ctrl_t       ctrl;
     line_recov_t      recov;
     line_ctrl_out_t   co;
@@ -277,7 +277,7 @@ lb_sim_line_run (lb_sim_line_cfg_t const * p_cfg, lb_sim_line_result_t * p_res)
     double  lat = 0.0;
     double  s_mm = 0.0;
     double  dt = 0.001;
-    uint32_t hint_l = 0u, hint_c = 0u, hint_car = 0u;
+    uint32_t hint_c = 0u, hint_r = 0u, hint_car = 0u;
     uint32_t ms = 0u;
     uint32_t dpos = 0u;
     uint32_t n_off = 0u;
@@ -292,8 +292,8 @@ lb_sim_line_run (lb_sim_line_cfg_t const * p_cfg, lb_sim_line_result_t * p_res)
     build_path(&path, p_cfg);
     path_len = (double)path.count * POINT_STEP_MM;
 
-    ir_filter_init(&filt_l);
     ir_filter_init(&filt_c);
+    ir_filter_init(&filt_r);
     line_ctrl_init(&ctrl);
     line_recov_init(&recov);
 
@@ -308,35 +308,35 @@ lb_sim_line_run (lb_sim_line_cfg_t const * p_cfg, lb_sim_line_result_t * p_res)
         double lx = -sn, ly = cs;          /* unit vector pointing left */
         double ahead = p_cfg->axle_to_sensor_mm;
         double gap = p_cfg->sensor_gap_mm / 2.0;
-        double cnt_l, cnt_c, flick, veer = 0.0, target = 0.0;
+        double cnt_c, cnt_r, flick, veer = 0.0, target = 0.0;
 
-        /* Sensors: left at +gap, centre at -gap (see line_ctrl.h). */
-        cnt_l = sensor_count(&path, &hint_l, p_cfg,
+        /* Sensors: centre at +gap, right at -gap (see line_ctrl.h). */
+        cnt_c = sensor_count(&path, &hint_c, p_cfg,
                              px + (ahead * cs) + (gap * lx),
                              py + (ahead * sn) + (gap * ly), lx, ly, &s_mm);
-        cnt_c = sensor_count(&path, &hint_c, p_cfg,
+        cnt_r = sensor_count(&path, &hint_r, p_cfg,
                              px + (ahead * cs) - (gap * lx),
                              py + (ahead * sn) - (gap * ly), lx, ly, &s_mm);
 
         flick = 1.0 + (p_cfg->flicker
                        * sin((2.0 * PI_VALUE * 100.0 * (double)ms / 1000.0)
                              + phase));
-        cnt_l = ((cnt_l + p_cfg->ambient_shift) * flick)
-                + (p_cfg->noise_counts * rng_gauss());
         cnt_c = ((cnt_c + p_cfg->ambient_shift) * flick)
                 + (p_cfg->noise_counts * rng_gauss());
-        cnt_l = fmin(fmax(cnt_l, 0.0), 4095.0);
+        cnt_r = ((cnt_r + p_cfg->ambient_shift) * flick)
+                + (p_cfg->noise_counts * rng_gauss());
         cnt_c = fmin(fmax(cnt_c, 0.0), 4095.0);
+        cnt_r = fmin(fmax(cnt_r, 0.0), 4095.0);
 
         {
-            int32_t fl = ir_filter_push(&filt_l, (int32_t)floor(cnt_l + 0.5));
             int32_t fc = ir_filter_push(&filt_c, (int32_t)floor(cnt_c + 0.5));
+            int32_t fr = ir_filter_push(&filt_r, (int32_t)floor(cnt_r + 0.5));
 
             /* Control tick every 10 ms. */
             if ((ms % (uint32_t)LB_LINE_TICK_MS) == ((uint32_t)LB_LINE_TICK_MS - 1u))
             {
-                line_ctrl_update(&ctrl, ir_calib_darkness(&cal_l, fl),
-                                 ir_calib_darkness(&cal_c, fc), &co);
+                line_ctrl_update(&ctrl, ir_calib_darkness(&cal_c, fc),
+                                 ir_calib_darkness(&cal_r, fr), &co);
                 ri.b_seen = co.b_seen;
                 ri.err = co.err;
                 ri.steer = co.steer;

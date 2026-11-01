@@ -33,6 +33,8 @@
 #define MS_FAULT_RECOVERY	1000
 #define SEQ_UNSET		0xFFFFFFFFu	/* done_seq_base not captured yet */
 #define LINE_FOUND_TICKS	5	/* consecutive steer messages with the line */
+#define JUNCTION_CREEP_MM	150	/* detection to axle on the junction [CAL] */
+#define JUNCTION_TURN_DEG	(-90)	/* floor test: turn left, + = right */
 
 /* What the caller must do after an event.  Actions accumulate; the caller
    clears the struct before feeding a batch of events. */
@@ -64,6 +66,10 @@ typedef struct {
 	UB	net_online;		/* set by the task from app_state */
 	INT	bypass_ms;		/* duration of the last bypass */
 	UB	bypass_late;		/* 1 = last bypass took over BYPASS_TARGET_MS */
+	UB	creeping;		/* junction seen: driving straight to it */
+	UB	creep_primed;		/* creep_base_mm holds the start distance */
+	UW	creep_base_mm;		/* distance when the creep began */
+	UB	stop_after_turn;	/* BARCODE_CMD: go to IDLE, do not drive on */
 } MISSION;
 
 IMPORT void mission_init(MISSION *m);
@@ -80,6 +86,10 @@ IMPORT void mission_on_obs(MISSION *m, const MSG_OBS *o, MISSION_ACT *a);
    app_state.  dt_ms is the time since the previous tick. */
 IMPORT void mission_on_tick(MISSION *m, INT dt_ms, UB motor_state,
 			    UW motor_done_seq, MISSION_ACT *a);
+
+/* Called every tick with the distance read from app_state.  Ends a junction
+   creep once the car has driven JUNCTION_CREEP_MM. */
+IMPORT void mission_on_distance(MISSION *m, UW dist_mm, MISSION_ACT *a);
 
 /* FR-03: 'A' left 90, 'B' right 90, 'C' straight, 'D' u-turn.
    Degrees, + right.  *valid is FALSE for any other character. */

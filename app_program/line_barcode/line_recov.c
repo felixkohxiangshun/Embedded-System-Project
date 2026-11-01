@@ -353,17 +353,16 @@ sweep_steer (line_recov_t const * p_recov)
         /* Even legs go to the side where the line was last seen. */
     }
 
-    /* The swing is added to the remembered steering, so the car keeps
-     * curving the way it was going while it searches. */
-    return (clamp_i32(p_recov->steer_mem + (direction * amp),
-                      -LB_STEER_MAX, LB_STEER_MAX));
+    /* The remembered steering is not added: after a veer it is large and
+     * would keep both legs of the sweep turning the same way. */
+    return (clamp_i32(direction * amp, -LB_STEER_MAX, LB_STEER_MAX));
 }
 
 /*!
  * @brief Which side was the line on when it vanished?
  *
  * The error says it: a negative error means the line was moving toward the
- * left sensor.  If the error is too small to tell, the smoothed steering
+ * centre sensor.  If the error is too small to tell, the smoothed steering
  * decides, and if that is also tiny the default side is used.
  */
 static int32_t

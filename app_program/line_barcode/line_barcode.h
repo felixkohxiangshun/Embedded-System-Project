@@ -5,9 +5,9 @@
  *
  * @par
  * What the subsystem does (design review section 6.1, FR-01 to FR-03):
- *  - follows the black line with the left and centre IR sensors, using
+ *  - follows the black line with the centre and right IR sensors, using
  *    a PD controller and a recovery routine for faded or lost lines, and
- *  - reads Code 39 "*X*" barcodes (X = A to D) with the right IR sensor
+ *  - reads Code 39 "*X*" barcodes (X = A to D) with the barcode IR sensor
  *    while the car keeps following the line.  The line sensors are
  *    analogue (ADC); the barcode sensor is digital (DO pin, GPIO level).
  *
@@ -24,8 +24,8 @@
  * @par
  * Data flow:
  * @verbatim
- *   ADC (left, centre) and GPIO level (right, DO pin)
- *       --> ir_sampler_isr --+--> filtered left/centre --> line_task
+ *   ADC (centre, right) and GPIO level (barcode, DO pin)
+ *       --> ir_sampler_isr --+--> filtered centre/right --> line_task
  *                            |                              |  line_ctrl
  *                            |                              |  line_recov
  *                            |                              v
@@ -73,13 +73,14 @@ typedef struct
     volatile uint32_t line_ticks;       /* runs of line_task */
     volatile uint32_t line_dt_max_ms;   /* longest gap between two ticks */
     volatile uint32_t line_state;       /* LB_LINE_STATE_xxx */
-    volatile int32_t  line_dark_left;   /* last darkness, left (0 to 1000) */
-    volatile int32_t  line_dark_centre; /* last darkness, centre */
+    volatile int32_t  line_dark_centre; /* last darkness, centre (0 to 1000) */
+    volatile int32_t  line_dark_right;  /* last darkness, right */
     volatile int32_t  line_err;         /* last position error */
     volatile int32_t  line_steer;       /* last steering sent */
     volatile uint32_t line_mode;        /* line_recov_mode_t */
     volatile uint32_t line_recoveries;  /* number of times tracking resumed */
     volatile uint32_t line_timeouts;    /* ticks sent with the TIMEOUT flag */
+    volatile uint32_t line_junctions;   /* side branches found */
     volatile uint32_t bc_state;         /* LB_BC_STATE_xxx */
     volatile uint32_t bc_edges;         /* edges received by barcode_task */
     volatile uint32_t bc_seen;          /* codes announced (BC_SEEN) */

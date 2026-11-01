@@ -59,9 +59,9 @@ Pin assignments follow the design review (section 2); each pin has one owner. `G
 | GP20 | Dave | `BTN_START` (active low; read by the GPIO interrupt) |
 | GP21 | | `BTN_2`, not used yet |
 | GP22 | | free |
-| GP26 | Vania | `IR_LEFT` (ADC0) |
-| GP27 | Vania | `IR_CENTER` (ADC1) |
-| GP28 | Vania | `IR_RIGHT` (ADC2, barcode) |
+| GP26 | Vania | `IR_RIGHT` (ADC0), line sensor on the right |
+| GP27 | Vania | `IR_CENTER` (ADC1), line sensor in the centre |
+| GP28 | Vania | `IR_BARCODE` (ADC2), barcode sensor on the left |
 
 The pin numbers in `app_program/app.h` (`PIN_...`) must match this table.
 

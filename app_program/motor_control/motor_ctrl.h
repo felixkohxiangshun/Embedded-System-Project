@@ -21,8 +21,20 @@
 
 /* ---- Speeds, mm/s [CAL].  FR-11 says "1-2 cm/s", which reads as a typo
  *      for 10-20 cm/s; 12 cm/s is used until the team confirms. ---- */
-#define SPEED_NORMAL_MMPS	120
-#define SPEED_SLOW_MMPS		60
+/* Temporary test speeds, out of the normal 120 mm/s.  SLOW matches so a
+   NAV_SLOW cannot speed the car up.  Restore 120 and 60 after the tests.
+   S1_TEST_FWD_BTN 1: GP21 forward test, 30 % (motor_control_test.c)
+   S1_TEST_FWD_BTN 0: GP20 line tracking floor test, 30 % */
+#ifndef S1_TEST_FWD_BTN
+#define S1_TEST_FWD_BTN		0
+#endif
+#if S1_TEST_FWD_BTN
+#define SPEED_NORMAL_MMPS	36
+#define SPEED_SLOW_MMPS		36
+#else
+#define SPEED_NORMAL_MMPS	36
+#define SPEED_SLOW_MMPS		36
+#endif
 #define SPEED_TURN_MMPS		60
 #define STEER_GAIN_MMPS		60	/* wheel speed difference at full steer */
 #define TURN_COAST_COUNTS	15	/* a pivot coasts this far after the motors cut, so cut early [CAL] */
