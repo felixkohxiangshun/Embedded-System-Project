@@ -125,15 +125,12 @@ EXPORT INT usermain(void)
 	tm_printf((UB*)"all subsystems started\n\n");
 
 #if APP_TEST
-	/* Test build (make TEST=1): run every subsystem's tests in turn,
-	   here in the initial task, while the system is running.  Tests may
-	   call tk_dly_tsk() to let the other tasks work for a while. */
 	tm_printf((UB*)"[TEST] === test run start ===\n");
-	motor_control_test();
+	motor_control_test(); 
 	line_barcode_test();
-	imu_terrain_test();
-	dashboard_test();
-	mission_obstacle_test();
+	imu_terrain_test(); 
+	dashboard_test(); 
+	mission_obstacle_test(); 
 	tm_printf((UB*)"[TEST] === test run end ===\n");
 #endif
 

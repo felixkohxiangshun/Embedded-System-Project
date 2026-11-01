@@ -33,3 +33,6 @@ compile_commands.json
 *.hex
 *.dis
 testing/host/host_tests
+
+testing/line_barcode/lb_host_tests
+testing/line_barcode/lb_digital_test

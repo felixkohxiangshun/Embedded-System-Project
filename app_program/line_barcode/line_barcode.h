@@ -1,68 +1,114 @@
-/*
- *	line_barcode.h
- *	LINE FOLLOWING AND BARCODE subsystem -- owner Vania Teng (2503206).
- *	Design review: section 6.1, FR-01..FR-03, NFR-03..NFR-05.
+/** @file line_barcode.h
  *
- *	Does:         follows the black line with the left and centre IR sensors
- *	              (PD control) and decodes Code 39 "*X*" barcodes (A..D) read
- *	              by the right IR sensor while the car keeps following the line.
- *	Tasks:        line_task    (PRI_LINE, periodic 10 ms)
- *	                states SAMPLING, STEERING, LINE_LOST
- *	              barcode_task (PRI_BARCODE, event driven by mbf_edge)
- *	                states WAITING, CAPTURING, DECODING, POST_COMMAND, DECODE_FAILED
- *	Handler:      ir_sampler_handler, cyclic 1 ms (NFR-04, >= 1 kHz)
- *	Peripheral:   the ADC (GP26 left, GP27 centre, GP28 right).  There is ONE
- *	              converter behind a multiplexer, so exactly one owner reads it:
- *	              the 1 ms sampler handler, for all three sensors.  The kernel's
- *	              own ADC driver is switched off in config_device.h.  No task
- *	              touches the ADC; line_task reads the filtered values.
- *	Objects:      mbf_edge (IF-02), cyc_ir, cyc_line
- *	Publishes:    MSG_STEER on mbf_steer (IF-01), MSG_BCCMD on mbf_bccmd (IF-03),
- *	              both to Mission.  Neither task commands the motors.
+ * @brief Line following and barcode reading subsystem (Buddy 3): public
+ *        interface, kernel object IDs and run-time counters.
+ *
+ * @par
+ * What the subsystem does (design review section 6.1, FR-01 to FR-03):
+ *  - follows the black line with the left and centre IR sensors, using
+ *    a PD controller and a recovery routine for faded or lost lines, and
+ *  - reads Code 39 "*X*" barcodes (X = A to D) with the right IR sensor
+ *    while the car keeps following the line.  The line sensors are
+ *    analogue (ADC); the barcode sensor is digital (DO pin, GPIO level).
+ *
+ * @par
+ * Tasks and handlers (ranks from app.h):
+ *  - ir_sampler_isr  cyclic handler, 1 kHz; the ONLY user of the ADC.
+ *  - line_task       PRI_LINE, woken every 10 ms by line_wakeup_isr.
+ *  - barcode_task    PRI_BARCODE, blocks on the edge buffer mbf_edge.
+ *
+ * @par
+ * Messages (app_if.h): MSG_STEER on mbf_steer and MSG_BCCMD on mbf_bccmd,
+ * both to Mission.  This subsystem never commands the motors.
+ *
+ * @par
+ * Data flow:
+ * @verbatim
+ *   ADC (left, centre) and GPIO level (right, DO pin)
+ *       --> ir_sampler_isr --+--> filtered left/centre --> line_task
+ *                            |                              |  line_ctrl
+ *                            |                              |  line_recov
+ *                            |                              v
+ *                            |                         mbf_steer --> Mission
+ *                            +--> bc_slicer --> mbf_edge --> barcode_task
+ *                                                   bc_stream, bc_decode
+ *                                                           |
+ *                                                           v
+ *                                                      mbf_bccmd --> Mission
+ * @endverbatim
+ *
+ * @par
+ * COPYRIGHT NOTICE: (c) 2026 INF2004 Group 11. Coding standard: BARR-C:2018.
  */
 
 #ifndef LINE_BARCODE_H
 #define LINE_BARCODE_H
 
+#include <stdint.h>
+#include <stdbool.h>
 #include "../app.h"
-#include "line_ctrl.h"
-#include "barcode_decode.h"
+#include "lb_config.h"
 
-IMPORT ID	tid_line;
-IMPORT ID	tid_barcode;
-IMPORT ID	cyc_ir;
-IMPORT ID	cyc_line;
+/** Barcode task states (design review statechart 6.1). */
+#define LB_BC_STATE_WAITING     0u
+#define LB_BC_STATE_CAPTURING   1u
+#define LB_BC_STATE_DECODING    2u
+#define LB_BC_STATE_POST        3u
+#define LB_BC_STATE_FAILED      4u
 
-/* Observable counters, used by the tests */
-IMPORT volatile UW s2_samples;		/* sampler handler runs */
-IMPORT volatile UW s2_edge_drops;	/* edges lost because mbf_edge was full */
-IMPORT volatile UW s2_line_ticks;
-IMPORT volatile UB s2_line_state;	/* LN_xxx */
-IMPORT volatile UB s2_bc_state;		/* BCS_xxx */
-IMPORT volatile UB s2_bc_last;
-IMPORT volatile UW s2_bc_decoded;
-IMPORT volatile UW s2_bc_failed;
+/** Line task states (design review statechart 6.1). */
+#define LB_LINE_STATE_SAMPLING  0u
+#define LB_LINE_STATE_STEERING  1u
+#define LB_LINE_STATE_LOST      2u
 
-/* drv_ir.c: ADC driver and the 1 kHz sampler (the only ADC user) */
-IMPORT void ir_hw_init(void);
-IMPORT void ir_sampler_handler(void *exinf);
-IMPORT INT  ir_filtered(INT channel);		/* 0 left, 1 centre, 2 right */
+/** Run-time counters.  They are written by the tasks and read by the
+ *  on-target tests, the trace output and the debugger; they are never used
+ *  to make a control decision.  Each field is written by one context only. */
+typedef struct
+{
+    volatile uint32_t sampler_runs;     /* runs of ir_sampler_isr */
+    volatile uint32_t sampler_max_us;   /* longest run of ir_sampler_isr */
+    volatile uint32_t edges_sent;       /* edges put on mbf_edge */
+    volatile uint32_t edges_dropped;    /* edges lost, mbf_edge was full */
+    volatile uint32_t line_ticks;       /* runs of line_task */
+    volatile uint32_t line_dt_max_ms;   /* longest gap between two ticks */
+    volatile uint32_t line_state;       /* LB_LINE_STATE_xxx */
+    volatile int32_t  line_dark_left;   /* last darkness, left (0 to 1000) */
+    volatile int32_t  line_dark_centre; /* last darkness, centre */
+    volatile int32_t  line_err;         /* last position error */
+    volatile int32_t  line_steer;       /* last steering sent */
+    volatile uint32_t line_mode;        /* line_recov_mode_t */
+    volatile uint32_t line_recoveries;  /* number of times tracking resumed */
+    volatile uint32_t line_timeouts;    /* ticks sent with the TIMEOUT flag */
+    volatile uint32_t bc_state;         /* LB_BC_STATE_xxx */
+    volatile uint32_t bc_edges;         /* edges received by barcode_task */
+    volatile uint32_t bc_seen;          /* codes announced (BC_SEEN) */
+    volatile uint32_t bc_decoded;       /* codes decoded (BC_OK) */
+    volatile uint32_t bc_failed;        /* codes rejected (BC_FAIL) */
+    volatile uint32_t bc_last;          /* last decoded character, 0 = none */
+} lb_stats_t;
 
-/* task_line.c / task_barcode.c */
-IMPORT void line_task(INT stacd, void *exinf);
-IMPORT void line_cyclic_handler(void *exinf);
-IMPORT void barcode_task(INT stacd, void *exinf);
+IMPORT lb_stats_t g_lb_stats;
 
-/* Line task states */
-#define LN_SAMPLING	0
-#define LN_STEERING	1
-#define LN_LOST		2
+IMPORT ID g_lb_tid_line;        /* line_task */
+IMPORT ID g_lb_tid_barcode;     /* barcode_task */
+IMPORT ID g_lb_cyc_ir;          /* 1 ms cyclic: ir_sampler_isr */
+IMPORT ID g_lb_cyc_line;        /* 10 ms cyclic: line_wakeup_isr */
 
-/* Barcode task states */
-#define BCS_WAITING	0
-#define BCS_CAPTURING	1
-#define BCS_DECODING	2
-#define BCS_POST	3
-#define BCS_FAILED	4
+/*!
+ * @brief Create this subsystem's kernel objects (mbf_edge and the cyclic
+ *        handlers).  Called by usermain() before any task starts.
+ *
+ * @return E_OK, or a negative kernel error code.
+ */
+IMPORT ER line_barcode_init(void);
+
+/*!
+ * @brief Start the ADC sampler, the two tasks and both cyclic handlers.
+ *
+ * @return E_OK, or a negative kernel error code.
+ */
+IMPORT ER line_barcode_start(void);
 
 #endif /* LINE_BARCODE_H */
+/*** end of file ***/

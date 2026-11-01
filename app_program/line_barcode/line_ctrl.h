@@ -1,49 +1,92 @@
-/*
- *	line_ctrl.h
- *	Line/barcode -- pure line-following maths (no hardware, no kernel calls).
+/** @file line_ctrl.h
  *
- *	Two sensors, LEFT and CENTRE, straddle the line: the set-point is the
- *	point midway between them, so the sign of the error says which way the
- *	line has moved.  (With only two sensors the line is "lost" when neither
- *	sees it, and a line to the right of the centre sensor cannot be told
- *	apart from "off the line"; the last error direction is used to search.)
+ * @brief Line position estimate and PD steering for the two line sensors.
  *
- *	*** [CAL] = placeholder, measure on the real track under venue light.
+ * @par
+ * The left and the centre IR sensor straddle the line.  The target is the
+ * point midway between them, so the sign of the error says which way the
+ * line has moved and the car must steer (negative = left, positive = right).
+ *
+ * @par
+ * Why the estimate survives a faded line: the position is the RATIO
+ * left / (left + centre), which does not change when the whole line gets
+ * lighter (worn tape, thin print, glare).  Only the sum, called the "line
+ * mass", shrinks.  The mass tells how strongly the line shows and drives
+ * two decisions: the line is "seen" down to about 10 percent of its nominal
+ * mass, and below 60 percent the controller enters FADED mode, in which it
+ * steers more gently on a smoothed error.
+ *
+ * @par
+ * What happens when the line is gone altogether is decided by line_recov.c,
+ * not here.  This module only reports "not seen" and holds its last output.
+ *
+ * @par
+ * Pure arithmetic: no hardware, no kernel calls, unit tested on a PC.
+ *
+ * @par
+ * COPYRIGHT NOTICE: (c) 2026 INF2004 Group 11. Coding standard: BARR-C:2018.
  */
 
 #ifndef LINE_CTRL_H
 #define LINE_CTRL_H
 
-/* 12-bit ADC counts for each sensor on white paper / on the black line.
-   TCRT5000 modules read HIGHER over black here; set IR_DARK_IS_HIGH to 0 if
-   the module is wired the other way round. [CAL] */
-#define IR_DARK_IS_HIGH		1
-#define IR_WHITE_LEFT		400
-#define IR_BLACK_LEFT		3200
-#define IR_WHITE_CENTER		400
-#define IR_BLACK_CENTER		3200
+#include <stdint.h>
+#include <stdbool.h>
 
-#define LINE_SEEN_MIN		250	/* dl + dc below this = off the line */
-#define LINE_TARGET		(-500)	/* midway between the sensors */
-#define LINE_KP			600	/* 1/256 units */
-#define LINE_KD			300
-#define LINE_LOST_TICKS		5	/* ticks off the line before LINE_LOST */
-#define LINE_TIMEOUT_MS		3000	/* lost this long -> report to Mission */
-#define LINE_TICK_MS		10	/* NFR-03: sample at least every 10 ms */
+/** State of the controller.  Treat as private; use the functions below. */
+typedef struct
+{
+    int32_t  prev_err;          /* error of the previous tick */
+    int32_t  err_filt;          /* smoothed error (used in FADED mode) */
+    int32_t  steer;             /* last steering output, for slew and hold */
+    int32_t  mass_avg;          /* averaged line mass */
+    uint32_t junction_ticks;    /* consecutive ticks with both sensors dark */
+    bool     b_seen;            /* line visible (with hysteresis) */
+    bool     b_faded;           /* FADED mode (with hysteresis) */
+    bool     b_primed;          /* prev_err and err_filt hold real values */
+} line_ctrl_t;
 
-typedef struct {
-	INT	prev_err;
-} LINE_PD;
+/** Result of one control tick. */
+typedef struct
+{
+    int32_t err;                /* position error, -500 to +500 */
+    int32_t mass;               /* left darkness + centre darkness */
+    int32_t steer;              /* steering, -LB_STEER_MAX to +LB_STEER_MAX */
+    bool    b_seen;             /* the line is visible */
+    bool    b_faded;            /* the line is weak (FADED mode) */
+    bool    b_junction;         /* a bar crosses the line under the car */
+} line_ctrl_out_t;
 
-/* 0 (white) .. 1000 (black) from a raw ADC reading, clamped */
-IMPORT INT  ir_darkness(INT raw, INT white, INT black);
+/*!
+ * @brief Reset the controller (line not seen, steering straight).
+ *
+ * @param[out] p_ctrl  Controller to initialise; must not be NULL.
+ */
+void line_ctrl_init(line_ctrl_t * p_ctrl);
 
-/* Position error -500..+500 (negative = line toward the left sensor).
-   Returns FALSE and leaves *err alone when neither sensor sees the line. */
-IMPORT BOOL line_error(INT dark_left, INT dark_center, INT *err);
+/*!
+ * @brief Forget the derivative history after the line was lost and found.
+ *
+ * The next tick starts with a zero derivative and the slew limiter starts
+ * from the steering the car was really given, so the wheels are not jerked.
+ *
+ * @param[in,out] p_ctrl      Controller; must not be NULL.
+ * @param[in]     last_steer  Steering that was last sent to Mission.
+ */
+void line_ctrl_restart(line_ctrl_t * p_ctrl, int32_t last_steer);
 
-/* PD controller: error -> steer -STEER_MAX..+STEER_MAX */
-IMPORT void line_pd_init(LINE_PD *pd);
-IMPORT INT  line_pd_step(LINE_PD *pd, INT err);
+/*!
+ * @brief Run one control tick (every LB_LINE_TICK_MS).
+ *
+ * @param[in,out] p_ctrl         Controller; must not be NULL.
+ * @param[in]     dark_left      Left sensor darkness, 0 to LB_DARK_MAX.
+ * @param[in]     dark_centre    Centre sensor darkness, 0 to LB_DARK_MAX.
+ * @param[out]    p_out          Result; must not be NULL.
+ */
+void line_ctrl_update(line_ctrl_t * p_ctrl,
+                      int32_t dark_left,
+                      int32_t dark_centre,
+                      line_ctrl_out_t * p_out);
 
 #endif /* LINE_CTRL_H */
+/*** end of file ***/
