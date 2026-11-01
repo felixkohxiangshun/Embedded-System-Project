@@ -1,0 +1,39 @@
+S1_TEST_CMDS run 2, wheels lifted, make TEST=1 (DUTY_MAX 600, TRACK_MM 106,
+TURN_COAST_COUNTS 15, 5 s countdown before the tests).
+Console capture from the VS Code Serial Monitor, filtered to the [CMDS] and
+motor_control [TEST] lines; [telemetry] lines removed.
+
+[TEST] motor_control tests start in 1 s
+[TEST] S1-U01 PASS  quadrature: 4 forward edges = +4
+[TEST] S1-U02 PASS  quadrature: 4 reverse edges = -4, a double jump counts 0
+[TEST] S1-U03 FAIL  one turn = ENC_COUNTS_PER_REV counts = WHEEL_MM_PER_REV mm; 10 turns/s = 10x mm/s   (../app_program/motor_control/motor_control_test.c:167)
+[TEST] S1-U04 PASS  PID: too slow -> push harder
+[TEST] S1-U05 PASS  PID: too fast -> back off
+[TEST] S1-U06 PASS  PID: output clamped to DUTY_MAX
+[TEST] S1-U07 PASS  motor loop runs every 10 ms
+[TEST] S1-U08 PASS  motor state is STOPPED after boot
+[TEST] S1-U09 PASS  encoder count is steady with the wheels still
+[CMDS] lift the wheels off the ground - starts in 3 s
+[CMDS] counts/s  steer 0: L=1628 R=1617  +500: L=2023 R=1226  -500: L=1221 R=2022
+[TEST] S1-M11a PASS  NAV_STEER +500 -> left wheel >= 20% faster (curves right)
+[TEST] S1-M11b PASS  NAV_STEER -500 -> right wheel >= 20% faster (curves left)
+[CMDS] counts/s  steer +1000: L=2421 R=823  +2000: L=2436 R=799
+[TEST] S1-M12 PASS  NAV_STEER +2000 drives the same as +1000 (clamped)
+[CMDS] NAV_SLOW: 61 mm/s (target 60)
+[TEST] S1-M13a PASS  NAV_SLOW -> slow speed within 15%
+[CMDS] NAV_RESUME: 122 mm/s (target 120)
+[TEST] S1-M13b PASS  NAV_RESUME -> normal speed within 15%
+[TEST] S1-M14a PASS  NAV_TURN while DRIVING -> TURNING
+[TEST] S1-M14b PASS  turn ends STOPPED and cmd_done_seq goes up by exactly 1
+[TEST] S1-M14c PASS  EVT_RESUME after the turn -> DRIVING
+[CMDS] busy turn: enc_l=1086 enc_r=-1113 state=0 done_seq +1
+[TEST] S1-M15 PASS  NAV_TURN / NAV_BYPASS during a turn ignored; first turn finishes
+[TEST] S1-M16a PASS  EVT_STOP mid-turn -> STOPPED within 20 ms
+[TEST] S1-M16b PASS  aborted turn: wheels still, cmd_done_seq unchanged
+[TEST] S1-M17 PASS  EVT_START during a turn ignored; turn finishes
+[CMDS] bypass side=1: first 300 ms enc_l=259 enc_r=-274, took 11630 ms, state=0 done_seq +1
+[TEST] S1-M18a PASS  NAV_BYPASS right: turns right first, ends STOPPED, done +1
+[CMDS] bypass side=-1: first 300 ms enc_l=-256 enc_r=278, took 11640 ms, state=0 done_seq +1
+[TEST] S1-M18b PASS  NAV_BYPASS left: turns left first, ends STOPPED, done +1
+[CMDS] done
+[TEST] motor_control SUMMARY 22 passed, 1 failed

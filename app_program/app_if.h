@@ -154,6 +154,15 @@ typedef struct {
 #define FAULT_ENCODER		0x02
 #define FAULT_LINE		0x04
 #define FAULT_SCAN		0x08
+#define FAULT_MOTOR_STALL	0x10	/* Dave: wheel driven but not turning */
+#define FAULT_WIFI		0x20	/* Jun Kai: WiFi or broker link lost */
+#define FAULT_HUMP_RANGE	0x40	/* Sook Yee: hump above the measurable range */
+#define FAULT_MISSION_TMO	0x80	/* Dave: no MSG_NAV from Mission in time */
+
+/* One writer per bit.  Each writer replaces only its own bits. */
+#define FAULT_OWN_MOTOR		(FAULT_ENCODER | FAULT_MOTOR_STALL | FAULT_MISSION_TMO)
+#define FAULT_OWN_DASH		(FAULT_WIFI)
+#define FAULT_OWN_MISSION	(FAULT_IMU | FAULT_LINE | FAULT_SCAN | FAULT_HUMP_RANGE)
 
 /* =====================================================================
  *  Shared state  MTX_STATE  (IF-11)
@@ -205,5 +214,14 @@ IMPORT APP_STATE app_state;
    loops that must not wait: if the lock is busy, skip this update. */
 IMPORT ER state_lock(TMO tmout);
 IMPORT void state_unlock(void);
+
+/* Replace the caller's own fault bits (own_mask) with new_bits and leave every
+   other owner's bits untouched.  The caller must hold state_lock(): the
+   read-modify-write is then never interleaved with another writer. */
+static inline void fault_write_locked(UB own_mask, UB new_bits)
+{
+	app_state.fault_flags = (UB)((app_state.fault_flags & (UB)~own_mask) |
+				      (new_bits & own_mask));
+}
 
 #endif /* APP_IF_H */
