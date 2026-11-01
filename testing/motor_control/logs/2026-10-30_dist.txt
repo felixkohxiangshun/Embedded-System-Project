@@ -1,0 +1,17 @@
+S1_TEST_DIST run, car on the floor beside a 50 cm ruler, make TEST=1
+(WHEEL_MM_PER_REV 201, TRACK_MM10 1059, S1_DIST_GOAL_MM 450).
+Console lines from the VS Code Serial Monitor; [telemetry] lines removed.
+Ruler reading at the front axle: about 490 mm in every run (Dave).
+
+[DIST] run 1: dist_mm=455  enc_l=6028 enc_r=6013 - read the ruler at the front axle now
+[TEST] S1-M21 PASS  drove forward on both wheels and stopped near the goal (compare dist_mm with the ruler)
+[DIST] run 2: dist_mm=455  enc_l=6012 enc_r=5990 - read the ruler at the front axle now
+[TEST] S1-M21 PASS  drove forward on both wheels and stopped near the goal (compare dist_mm with the ruler)
+[DIST] run 3: dist_mm=457  enc_l=6041 enc_r=6018 - read the ruler at the front axle now
+[TEST] S1-M21 PASS  drove forward on both wheels and stopped near the goal (compare dist_mm with the ruler)
+[DIST] if the ruler differs: WHEEL_MM_PER_REV = 201 x ruler_mm / dist_mm
+[TEST] motor_control SUMMARY 12 passed, 0 failed
+
+Result: dist_mm averages 456 against 490 by ruler, -7 %, outside +/-3 %.
+WHEEL_MM_PER_REV 201 -> 216 (201 x 490 / 456); TRACK_MM10 1059 -> 1138
+scaled by the same ratio so the turn goals stay at 1097 / 2194 counts.
