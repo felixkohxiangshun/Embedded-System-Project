@@ -8,7 +8,6 @@
 #include <string.h>
 #include <stdio.h>
 #include "motor_control/motor_control.h"
-#include "line_barcode/line_barcode.h"
 #include "imu_terrain/imu_terrain.h"
 #include "dashboard/dashboard.h"
 #include "mission_obstacle/mission_obstacle.h"
@@ -18,34 +17,6 @@ static int pass_, fail_;
 #define CHECK_T(id, cond, desc) do { \
 	if (cond) { pass_++; printf("PASS  %-9s %s\n", id, desc); } \
 	else { fail_++; printf("FAIL  %-9s %s  (line %d)\n", id, desc, __LINE__); } } while (0)
-
-/* ---- subsystem 2 helpers: build the 30 edges of "*X*" ---- */
-static void make_edges(const char *data, UW *t)
-{
-	const char *parts[3] = { "NWNNWNWNN", data, "NWNNWNWNN" };
-	int n = 0, p, i;
-	UW now = 1000;
-
-	t[n++] = now;
-	for (p = 0; p < 3; p++) {
-		for (i = 0; i < 9; i++) {
-			now += (parts[p][i] == 'W') ? 12500 : 5000;
-			t[n++] = now;
-		}
-		if (p < 2) {
-			now += 5000;
-			t[n++] = now;
-		}
-	}
-}
-
-static int decode(const char *data, UB *ch)
-{
-	UW t[BC_NUM_EDGES];
-
-	make_edges(data, t);
-	return bc_decode(t, BC_NUM_EDGES, ch);
-}
 
 static int has(const char *s, const char *sub)
 {
@@ -63,7 +34,6 @@ static MISSION_ACT clear_act(void)
 int main(void)
 {
 	int n;
-	UB ch = 0;
 
 	/* ---------------- subsystem 1 ---------------- */
 	n = qdec_step(0, 1) + qdec_step(1, 3) + qdec_step(3, 2) + qdec_step(2, 0);
@@ -104,44 +74,8 @@ int main(void)
 		"turn distance scales with the angle");
 
 	/* ---------------- subsystem 2 ---------------- */
-	CHECK_T("S2-U01", decode("WNNNNWNNW", &ch) == BCD_OK && ch == 'A', "decode *A*");
-	CHECK_T("S2-U02", decode("NNWNNWNNW", &ch) == BCD_OK && ch == 'B', "decode *B*");
-	CHECK_T("S2-U03", decode("WNWNNWNNN", &ch) == BCD_OK && ch == 'C', "decode *C*");
-	CHECK_T("S2-U04", decode("NNNNWWNNW", &ch) == BCD_OK && ch == 'D', "decode *D*");
-	{
-		UW t[BC_NUM_EDGES];
-		int i;
-
-		make_edges("WNNNNWNNW", t);
-		for (i = 1; i < BC_NUM_EDGES; i++) { t[i] = t[0] + (t[i] - t[0]) * 2; }
-		CHECK_T("S2-U05", bc_decode(t, BC_NUM_EDGES, &ch) == BCD_OK && ch == 'A', "half speed decodes the same");
-		make_edges("WNNNNWNNW", t);
-		CHECK_T("S2-U06a", bc_decode(t, BC_NUM_EDGES - 1, &ch) == BCD_ERR_COUNT, "29 edges rejected");
-		t[5] = t[4] + 100;
-		CHECK_T("S2-U06b", bc_decode(t, BC_NUM_EDGES, &ch) != BCD_OK, "corrupted width rejected");
-		CHECK_T("S2-U06c", decode("NNNNNNWWW", &ch) != BCD_OK, "unknown pattern rejected");
-		/* a timer wrap in the middle of a code must not matter */
-		make_edges("NNWNNWNNW", t);
-		for (i = 0; i < BC_NUM_EDGES; i++) { t[i] += 0xFFFFFFFFu - 60000u; }
-		CHECK_T("S2-U11", bc_decode(t, BC_NUM_EDGES, &ch) == BCD_OK && ch == 'B', "timer wrap-around is harmless");
-	}
-	{
-		INT e;
-
-		CHECK_T("S2-U07a", line_error(1000, 0, &e) && e < 0, "line under left sensor -> error < 0");
-		CHECK_T("S2-U07b", line_error(0, 1000, &e) && e > 0, "line under centre sensor -> error > 0");
-		CHECK_T("S2-U07c", line_error(1000, 1000, &e) && e == 0, "line between sensors -> 0");
-		CHECK_T("S2-U07d", !line_error(10, 10, &e), "both on white -> lost");
-	}
-	{
-		LINE_PD pd;
-
-		line_pd_init(&pd);
-		CHECK_T("S2-U08", line_pd_step(&pd, 100000) == STEER_MAX, "steer clamped");
-		CHECK_T("S2-U12", ir_darkness(400, IR_WHITE_LEFT, IR_BLACK_LEFT) == 0 &&
-			ir_darkness(3200, IR_WHITE_LEFT, IR_BLACK_LEFT) == 1000 &&
-			ir_darkness(9999, IR_WHITE_LEFT, IR_BLACK_LEFT) == 1000, "darkness 0..1000, clamped");
-	}
+	/* The line and barcode tests (S2-xxx) have their own, larger runner:
+	   cd testing/line_barcode && make run */
 
 	/* ---------------- subsystem 3 ---------------- */
 	{
