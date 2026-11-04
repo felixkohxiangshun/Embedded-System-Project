@@ -25,6 +25,12 @@ EXPORT volatile UW s4_console_lines;
 
 #define DASH_TICK_MS	100
 
+/* 1 prints each telemetry frame on the console while offline.  0 keeps the
+   console free for bench tests. */
+#ifndef DASH_CONSOLE_TELEM
+#define DASH_CONSOLE_TELEM	0
+#endif
+
 LOCAL BOOL wifi_is_up(void)
 {
 #if TM_WIFI_CYW43
@@ -109,8 +115,10 @@ EXPORT void dashboard_task(INT stacd, void *exinf)
 					send_out(json, len);
 				} else {
 					/* not online yet: show the frame on the console */
+#if DASH_CONSOLE_TELEM
 					tm_printf((UB*)"[telemetry] %s\n", json);
 					s4_console_lines++;
+#endif
 				}
 			}
 		}

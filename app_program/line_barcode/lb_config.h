@@ -86,10 +86,10 @@
  * ---------------------------------------------------------------------
  * white = sensor centred over bare paper, black = sensor centred over the
  * fresh black line.  The span must be at least LB_CAL_SPAN_MIN counts. */
-#define LB_WHITE_CENTER             184
-#define LB_BLACK_CENTER             2900
-#define LB_WHITE_RIGHT              1107
-#define LB_BLACK_RIGHT              2396
+#define LB_WHITE_CENTER             400
+#define LB_BLACK_CENTER             2724
+#define LB_WHITE_RIGHT              1072
+#define LB_BLACK_RIGHT              2920
 #define LB_CAL_SPAN_MIN             800
 
 /* Largest normalised darkness (see ir_calib.h). */
@@ -338,7 +338,7 @@
 /* Seconds of live trace printed after the tests (0 = none).  One line every
  * 100 ms with the raw readings, line error, steering, mode and barcode
  * state.  Press the start button and drive the car meanwhile. */
-#define LB_TEST_TRACE_SECONDS       120
+#define LB_TEST_TRACE_SECONDS       600
 
 /* ------------------------------------------------------------------------
  * Compile-time checks of the relations the algorithms rely on.

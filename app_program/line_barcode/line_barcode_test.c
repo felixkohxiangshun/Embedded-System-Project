@@ -338,27 +338,20 @@ run_guided_calibration (void)
  * @brief Print one status line every 100 ms.  Save it with "screen -L" and
  *        plot it, or read it while pushing the car by hand.
  *
- * Columns: time(ms) dark-centre dark-right dark-barcode barcode-edges
- *          decoded failed last
+ * Columns: dark-centre dark-right
  */
 static void
 run_trace (void)
 {
     int32_t step = 0;
 
-    tm_printf((UB*)"TRACE t_ms darkC darkR bcDark bcEdges ok fail last\n");
+    tm_printf((UB*)"TRACE darkC darkR\n");
 
     for (step = 0; step < (LB_TEST_TRACE_SECONDS * 10); step++)
     {
-        tm_printf((UB*)"TRACE %d %d %d %d %d %d %d %c\n",
-                  (INT)(step * 100),
+        tm_printf((UB*)"TRACE %d %d\n",
                   (INT)g_lb_stats.line_dark_centre,
-                  (INT)g_lb_stats.line_dark_right,
-                  (INT)ir_driver_get_dark(IR_CHANNEL_BARCODE),
-                  (INT)g_lb_stats.bc_edges,
-                  (INT)g_lb_stats.bc_decoded,
-                  (INT)g_lb_stats.bc_failed,
-                  (0u != g_lb_stats.bc_last) ? (INT)g_lb_stats.bc_last : '-');
+                  (INT)g_lb_stats.line_dark_right);
         (void)tk_dly_tsk(100);
     }
 
