@@ -10,10 +10,10 @@ by agreement of the team.
 | Subsystem | Owner | Student ID | GitHub | Code | Tests |
 |---|---|---|---|---|---|
 | Motor control: PID speed loop, wheel encoders, start button interrupt | Tan Kun Yi Dave | 2502730 | *(add)* | `app_program/motor_control/` | `testing/motor_control/` |
-| Line following and barcode: three IR sensors, 1 kHz sampler, Code 39 decoding | Vania Teng | 2503206 | *(add)* | `app_program/line_barcode/` | `testing/line_barcode/` |
+| Line following and barcode: three IR sensors, 1 kHz sampler, Code 39 decoding (A–Z, both directions), cross-junction detection | Vania Teng | 2503206 | *(add)* | `app_program/line_barcode/` | `testing/line_barcode/` |
 | IMU and terrain: hump height, tallest hump, shock detection | Lau Sook Yee | 2503178 | *(add)* | `app_program/imu_terrain/` | `testing/imu_terrain/` |
-| Online dashboard: telemetry task, WiFi, MQTT, telemetry JSON, remote commands | Wong Jun Kai | 2500258 | *(add)* | `app_program/dashboard/` | `testing/dashboard/` |
-| Mission state, obstacle scanning and avoidance, integration | Felix Koh | 2500256 | *(add)* | `app_program/mission_obstacle/` | `testing/mission_obstacle/` |
+| Online dashboard: telemetry task, WiFi, MQTT, compact binary telemetry, movement mapping received over MQTT | Wong Jun Kai | 2500258 | *(add)* | `app_program/dashboard/` | `testing/dashboard/` |
+| Mission state, stored barcode command carried out at cross junctions, obstacle scanning and avoidance, integration | Felix Koh | 2500256 | *(add)* | `app_program/mission_obstacle/` | `testing/mission_obstacle/` |
 
 Test IDs in the logs use short codes: S1 = motor_control, S2 = line_barcode,
 S3 = imu_terrain, S4 = dashboard, S5 = mission_obstacle.
@@ -23,10 +23,10 @@ S3 = imu_terrain, S4 = dashboard, S5 = mission_obstacle.
 | Owner | Requirements | Task(s) and priority | Statechart | Assumptions | Also responsible for (report) |
 |---|---|---|---|---|---|
 | Dave | FR-11, FR-12, FR-13, NFR-14, NFR-15; FR-03 (turns), FR-09 (bypass motion) | `motor_task` 12 | 6.3 Motor | A5 battery, A6 wheel slip | motor pin layout, PID/control task, motion statechart |
-| Vania | FR-01, FR-02, FR-03 (decode), FR-10 (line), NFR-03, NFR-04, NFR-05 | `line_task` 13, `barcode_task` 16 | 6.1 Line and barcode | A3 IR contrast | line/barcode requirements, sensor calibration, navigation interface |
+| Vania | FR-01, FR-02, FR-03 (decode A–Z in both directions; cross-junction detection), FR-10 (line), NFR-03, NFR-04, NFR-05 | `line_task` 13, `barcode_task` 16 | 6.1 Line and barcode | A3 IR contrast | line/barcode requirements, sensor calibration, navigation interface |
 | Sook Yee | FR-04, FR-05, FR-06, NFR-06, NFR-07 | `imu_task` 15 | 6.2 IMU | A4 hump vs vibration | IMU interface, terrain requirements, terrain statechart |
-| Jun Kai | FR-14..FR-18 (incl. FR-16 telemetry), NFR-12, NFR-13 | `dashboard_task` 19, `telemetry_task` 18 | 6.5 Dashboard | A7, A8 WiFi / MQTT | communication requirements, telemetry interface, WiFi task |
-| Felix | FR-07, FR-08, FR-09, FR-10, FR-17, FR-19, NFR-08..NFR-11 | `mission_task` 14, `scan_task` 17 | 5 System, 6.4 Obstacle scan | A1 ultrasonic range, A2 shared priority | system architecture, task interaction diagram, obstacle scanning statechart |
+| Jun Kai | FR-14..FR-18 (incl. FR-16 binary telemetry, movement mapping over MQTT), NFR-12, NFR-13 | `dashboard_task` 19, `telemetry_task` 18 | 6.5 Dashboard | A7, A8 WiFi / MQTT | communication requirements, telemetry interface, WiFi task |
+| Felix | FR-03 (store the decoded character, carry out its mapped movement at the next cross junction), FR-07, FR-08, FR-09, FR-10, FR-17 (start/stop button only: remote E-stop removed), FR-19, NFR-08..NFR-11 | `mission_task` 14, `scan_task` 17 | 5 System, 6.4 Obstacle scan | A1 ultrasonic range, A2 shared priority | system architecture, task interaction diagram, obstacle scanning statechart |
 
 ## 2. Pins
 
@@ -146,18 +146,18 @@ it or waits on it. Message formats are in `app_program/app_if.h`.
 
 | ID | From → To | Mechanism | Object | Data / meaning | Owners (from → to) |
 |---|---|---|---|---|---|
-| IF-01 | Line → Mission | message buffer (owned by Felix) | `mbf_steer` | `MSG_STEER`: steer −1000..+1000, flags LOST / TIMEOUT | Vania → Felix |
+| IF-01 | Line → Mission | message buffer (owned by Felix) | `mbf_steer` | `MSG_STEER`: steer −1000..+1000, flags LOST / TIMEOUT / JUNCTION (cross junction found, sent once per junction) | Vania → Felix |
 | IF-02 | 1 kHz handler → Barcode | message buffer (owned by Vania) | `mbf_edge` | `MSG_EDGE`: timestamp (µs) and level of each barcode edge | Vania |
-| IF-03 | Barcode → Mission | message buffer (owned by Felix) | `mbf_bccmd` | `MSG_BCCMD`: SEEN / OK(A–D) / FAIL | Vania → Felix |
+| IF-03 | Barcode → Mission | message buffer (owned by Felix) | `mbf_bccmd` | `MSG_BCCMD`: SEEN / OK(A–Z, either scan direction) / FAIL | Vania → Felix |
 | IF-04 | IMU → Mission | message buffer (owned by Felix) | `mbf_terrain` | `MSG_TERRAIN`: hump start/done (height, tallest), shock, fault | Sook Yee → Felix |
 | IF-05 | Scan → Mission | message buffer (owned by Felix) | `mbf_obs` | `MSG_OBS`: detected / result (side, width, clearance) / fail | Felix |
 | IF-06 | Mission → Scan | message buffer (owned by Felix) | `mbf_scancmd` | `MSG_SCANCMD`: ARM / DISARM / PROFILE | Felix |
-| IF-07 | Dashboard → Mission | message buffer (owned by Felix) | `mbf_mqttcmd` | `MSG_MQTTCMD`: E_STOP / RESUME | Jun Kai → Felix |
+| IF-07 | Dashboard → Mission | message buffer (owned by Felix) | `mbf_mqttcmd` | `MSG_MQTTCMD`: MAP, the characters for forward, U-turn, left and right (unpacked from the binary command, section 7) | Jun Kai → Felix |
 | IF-08 | Mission → Motor | message buffer (owned by Dave) | `mbf_nav` | `MSG_NAV`: steer, slow, turn, bypass, resume | Felix → Dave |
 | IF-09 | Telemetry → Dashboard | message buffer (owned by Jun Kai) | `mbf_telem` | `MSG_TELEM` frame every 500 ms | Jun Kai (both ends) |
 | IF-10 | Mission / button ISR → Motor, Mission | event flag (owned by Dave) | `flg_evt` | START, STOP, RESUME (to Motor); BTN (ISR to Mission) | Felix, Dave |
-| IF-11 | Motor, Mission → Mission, Telemetry, Dashboard | shared data under a mutex with priority inheritance (owned by Felix) | `app_state`, `mtx_state` | `APP_STATE`: system/motor state, speed, distance, results, network status | Dave, Felix, Jun Kai |
-| IF-12 | Dashboard ↔ kernel MQTT task | two message buffers (owned by Jun Kai) | `mbf_mqtt_out`, `mbf_mqtt_in` | JSON to publish; broker events and command payloads | Jun Kai — **pending: needs a library change** |
+| IF-11 | Motor, Mission → Mission, Telemetry, Dashboard | shared data under a mutex with priority inheritance (owned by Felix) | `app_state`, `mtx_state` | `APP_STATE`: system/motor state, speed, distance, results (incl. the stored character and the current mapping), network status | Dave, Felix, Jun Kai |
+| IF-12 | Dashboard ↔ kernel MQTT task | two message buffers (owned by Jun Kai) | `mbf_mqtt_out`, `mbf_mqtt_in` | binary telemetry frames to publish; broker events and binary command payloads (section 7) | Jun Kai — **pending: needs a library change** |
 
 Why message buffers and not queues: micro T-Kernel has no data queue. A message
 buffer copies the message in and out and has bounded size; a mailbox passes only a
@@ -186,3 +186,74 @@ WiFi) also use a few objects, so the message-buffer limit was raised from 12 to 
 | Alarm handler | 12 | | | | | | 0 |
 
 Interrupt handler defined: IO bank 0 (NVIC 13), by Dave.
+
+## 7. Barcode commands and MQTT formats
+
+These follow the demo requirements. They replace the earlier design, in which the car
+turned as soon as a barcode (A–D only) was read and the dashboard used JSON with a remote
+E-stop.
+
+### Demo behaviour
+
+1. The car scans a barcode in either direction and decodes any character A–Z
+   (Vania).
+2. Mission stores the character; a newer barcode replaces an older one (Felix).
+3. The car keeps following the line until it detects a cross junction (Vania).
+4. At the cross junction Mission drives on until the axle is on the junction, then
+   carries out the movement mapped to the stored character: forward, U-turn, left or
+   right (Felix; the turn itself is Dave's `NAV_TURN`).
+5. The stored character is cleared and the car carries on to the next barcode.
+
+No barcode since the last junction, an unmapped character, or no mapping received yet:
+the car goes forward. The character-to-movement mapping is **not hard-coded**: the
+instructor's PC sends it over MQTT before the demo.
+
+### Command from the PC: movement mapping, 3 bytes
+
+The only command. Letters are coded A = 0 … Z = 25; 26–31 are invalid and the whole
+command is rejected. Packed most significant bit first, starting at bit 7 of byte 0.
+
+| Bits | Field |
+|---|---|
+| 5 | character for **forward** |
+| 5 | character for **U-turn** |
+| 5 | character for **left** |
+| 5 | character for **right** |
+| 4 | spare, sent as 0 |
+
+Example: forward A, U-turn B, left C, right D = `0x00 0x44 0x30`.
+
+**Remote E-stop and RESUME are removed** (`MQTTCMD_ESTOP`, `MQTTCMD_RESUME`, the
+`E_STOP` system state). The GP20 start/stop button stays.
+
+### Telemetry to the PC: 11 bytes every 500 ms
+
+Bit-packed to use the fewest bits, most significant bit first in the order below.
+Signed values are two's complement; values out of range are clamped, never wrapped;
+spare bits are 0.
+
+| Field | Range and resolution | Bits |
+|---|---|---|
+| sequence number | 0–255, wraps (lets the PC count lost frames) | 8 |
+| system state | 0–15 (`SYS_xxx`) | 4 |
+| speed | −256 to +255 mm/s | 9 |
+| distance travelled | 0–65 535 mm, wraps | 16 |
+| heading | 0–359° | 9 |
+| line seen | 0 / 1 | 1 |
+| obstacle distance | 0–255 cm, 0 = none | 8 |
+| last character read | A–Z = 0–25, 31 = none | 5 |
+| stored character for the next junction | A–Z = 0–25, 31 = none | 5 |
+| tallest hump | 0–127 mm | 7 |
+| shock | 0 / 1 | 1 |
+| fault flags | the 8 `FAULT_xxx` bits | 8 |
+| spare | 0 | 7 |
+| **total** | | **88 (11 bytes)** |
+
+The raw encoder counts are no longer sent; speed and distance are derived from them.
+Packing and unpacking live in `dash_logic.c` and are tested on the PC; the PC dashboard
+must use exactly this layout.
+
+### Still to agree
+
+- The exact format the instructor's PC sends, if it provides its own sender.
+- Whether FR-16 needs any field not listed above.
