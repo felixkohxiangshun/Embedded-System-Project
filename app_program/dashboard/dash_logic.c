@@ -1,11 +1,4 @@
-/*
- *	dash_logic.c
- *	Dashboard -- pure dashboard logic.  See dash_logic.h.
- */
-
 #include "dashboard.h"
-
-/* ---- connection statechart ------------------------------------------ */
 
 EXPORT void dash_init(DASH *d)
 {
@@ -29,7 +22,6 @@ EXPORT void dash_step(DASH *d, const DASH_IN *in, DASH_OUT *out)
 	out->publish_heartbeat = FALSE;
 	d->t_ms += in->dt_ms;
 
-	/* losing WiFi or the broker from any connected state -> RECONNECTING */
 	if (d->state == DASH_MQTT_CONNECTING || d->state == DASH_ONLINE ||
 	    d->state == DASH_HEARTBEAT) {
 		if (!in->wifi_up || in->mqtt_event == MQTTM_DISCONNECTED) {
@@ -84,8 +76,6 @@ EXPORT void dash_step(DASH *d, const DASH_IN *in, DASH_OUT *out)
 	}
 }
 
-/* ---- tiny JSON writer (no printf: small, bounded, no heap) ---------- */
-
 typedef struct {
 	char	*p;
 	INT	size;
@@ -118,7 +108,7 @@ LOCAL void jb_int(JB *j, INT v)
 
 	if (v < 0) {
 		jb_ch(j, '-');
-		u = (UW)(-(v + 1)) + 1u;	/* safe for INT_MIN */
+		u = (UW)(-(v + 1)) + 1u;
 	} else {
 		u = (UW)v;
 	}
@@ -170,10 +160,6 @@ LOCAL const char *state_name(UB s)
 	}
 }
 
-/* FR-16 fields: state, heading, speed, distance travelled, obstacle distance,
-   last barcode, peak hump height, shock flag (plus encoder counts, line,
-   faults).  "heading" has no sensor of its own: Telemetry dead-reckons it
-   from the difference of the two wheel encoders (degrees, + right). */
 EXPORT INT dash_format_telem(const MSG_TELEM *t, char *buf, INT size)
 {
 	JB j = { buf, size, 0, FALSE };
@@ -218,8 +204,6 @@ EXPORT INT dash_format_heartbeat(UW uptime_ms, UB sys_state, char *buf, INT size
 	jb_field(&j, "t_ms", (INT)uptime_ms, FALSE);
 	return jb_end(&j);
 }
-
-/* ---- command parser -------------------------------------------------- */
 
 LOCAL BOOL contains(const char *s, INT len, const char *word)
 {

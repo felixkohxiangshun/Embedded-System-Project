@@ -1,14 +1,3 @@
-/*
- *	task_telemetry.c
- *	Dashboard -- the Telemetry task.
- *
- *	Every TELEMETRY_MS (FR-16: 500 ms) it copies app_state under mtx_state,
- *	adds the uptime, and sends one MSG_TELEM frame to the Dashboard on
- *	mbf_telem.  Low priority: a late frame only delays the dashboard.  It
- *	waits for the mutex (with priority inheritance), because it has no
- *	deadline to protect; the control tasks never wait for it.
- */
-
 #include "dashboard.h"
 #include "../motor_control/motor_ctrl.h"
 
@@ -41,8 +30,8 @@ EXPORT void telemetry_task(INT stacd, void *exinf)
 		t.fault_flags = app_state.fault_flags;
 		state_unlock();
 
-		tk_get_otm(&now);		/* ms since boot */
-		t.uptime_ms = now.lo;		/* low 32 bits: wraps after 49 days */
+		tk_get_otm(&now);
+		t.uptime_ms = now.lo;
 		if (MBF_SEND(mbf_telem, t) == E_OK) {
 			s4_telem_sent++;
 		}
