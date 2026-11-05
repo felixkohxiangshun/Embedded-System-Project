@@ -33,6 +33,9 @@
 
 IMPORT ID	tid_mission;
 IMPORT ID	tid_scan;
+IMPORT ID	flg_echo;	/* private: echo ISR -> scan_task, bit ECHO_FLG_DONE */
+#define ECHO_FLG_DONE		0x01
+#define ECHO_TIMEOUT_MS		30	/* no falling edge by then = no echo */
 
 #define MISSION_TICK_MS		5
 

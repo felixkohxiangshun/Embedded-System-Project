@@ -67,3 +67,43 @@ EXPORT BOOL scan_evaluate(const INT d_mm[SCAN_ANGLES], SCAN_RESULT *r)
 	r->side = (r->clear_right_mm >= r->clear_left_mm) ? OBS_SIDE_RIGHT : OBS_SIDE_LEFT;
 	return TRUE;
 }
+
+/* ---- echo pulse capture ------------------------------------------------ */
+
+EXPORT void echo_arm(ECHO *e)
+{
+	e->have_rise = 0;
+	e->width_us = 0;
+	e->armed = 1;
+}
+
+EXPORT void echo_disarm(ECHO *e)
+{
+	e->armed = 0;
+}
+
+EXPORT BOOL echo_edge(ECHO *e, UW now_us, UW edges)
+{
+	if (!e->armed) {
+		return FALSE;			/* not waiting for an echo: stale edge */
+	}
+	if (edges & ECHO_EDGE_RISE) {
+		e->t_rise = now_us;
+		e->have_rise = 1;
+	}
+	if ((edges & ECHO_EDGE_FALL) && e->have_rise) {
+		e->width_us = (UW)(now_us - e->t_rise);	/* wrap-safe */
+		e->have_rise = 0;
+		e->armed = 0;
+		return TRUE;
+	}
+	return FALSE;
+}
+
+EXPORT INT echo_us_to_mm(UW width_us)
+{
+	if (width_us == 0 || width_us > ECHO_MAX_US) {
+		return SCAN_NO_ECHO;
+	}
+	return (INT)((width_us * 343) / 2000);	/* 0.343 mm/us, there and back */
+}

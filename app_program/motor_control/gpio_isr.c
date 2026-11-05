@@ -44,6 +44,11 @@ EXPORT volatile UW  s1_isr_count;
 LOCAL UB enc_prev[2];
 LOCAL UW btn_last_us;
 
+/* Ultrasonic ECHO (GP16, Felix) is also on this bank: pins 16..23 are in register 2.
+   Added for Tribunal 1 (interrupt-driven echo); the edges are handed to
+   ultra_echo_isr() in mission_obstacle/drv_ultra.c, which enables them itself. */
+#define ECHO_MASK2		PIN_BITS(PIN_ULTRA_ECHO, 0xF)
+
 /* Pins 0..7 are in register 0, pins 16..23 in register 2 */
 #define ENC_MASK0	(PIN_BITS(PIN_ENC_LEFT_A, 0xF) | PIN_BITS(PIN_ENC_LEFT_B, 0xF) | \
 			 PIN_BITS(PIN_ENC_RIGHT_A, 0xF) | PIN_BITS(PIN_ENC_RIGHT_B, 0xF))
@@ -52,10 +57,12 @@ LOCAL UW btn_last_us;
 LOCAL void gpio_bank0_handler(UINT intno)
 {
 	UW  s0, s2, in;
+	UW  t_us;
 	UB  cur;
 	INT d;
 
 	(void)intno;
+	t_us = APP_NOW_US();		/* stamp first: echo edges must not wait for the encoders */
 	s1_isr_count++;
 
 	s0 = in_w(IO_PROC0_INTS(0));
@@ -75,6 +82,18 @@ LOCAL void gpio_bank0_handler(UINT intno)
 		d = qdec_step(enc_prev[1], cur) * ENC_SIGN_RIGHT;
 		enc_prev[1] = cur;
 		enc_cnt[1] += d;
+	}
+
+	if (s2 & ECHO_MASK2) {
+		UW edges = 0;
+
+		if (s2 & PIN_BITS(PIN_ULTRA_ECHO, EDGE_RISE)) {
+			edges |= ECHO_EDGE_RISE;
+		}
+		if (s2 & PIN_BITS(PIN_ULTRA_ECHO, EDGE_FALL)) {
+			edges |= ECHO_EDGE_FALL;
+		}
+		ultra_echo_isr(t_us, edges);
 	}
 
 	if (s2 & BTN_MASK2) {

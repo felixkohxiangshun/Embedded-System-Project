@@ -7,6 +7,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include "motor_control/motor_control.h"
 #include "line_barcode/line_barcode.h"
 #include "imu_terrain/imu_terrain.h"
@@ -70,8 +71,10 @@ int main(void)
 	CHECK_T("S1-U01", n == 4, "quadrature: 4 forward edges = +4");
 	n = qdec_step(0, 2) + qdec_step(2, 3) + qdec_step(3, 1) + qdec_step(1, 0);
 	CHECK_T("S1-U02", n == -4 && qdec_step(0, 3) == 0, "quadrature: 4 reverse edges = -4, double jump 0");
+	/* integer rounding (2654 / 10 = 265 counts per tick) allows 1 % on the speed */
+	n = counts_to_mmps(ENC_COUNTS_PER_REV / 10) - WHEEL_MM_PER_REV * 10;
 	CHECK_T("S1-U03", mm_to_counts(WHEEL_MM_PER_REV) == ENC_COUNTS_PER_REV &&
-		counts_to_mmps(ENC_COUNTS_PER_REV / 10) == WHEEL_MM_PER_REV * 10, "unit conversions agree");
+		abs(n) * 100 <= WHEEL_MM_PER_REV * 10, "unit conversions agree (1%)");
 	{
 		PID p;
 		int i;
@@ -100,8 +103,37 @@ int main(void)
 		int back = counts_to_deg(deg_to_counts(90));
 		CHECK_T("S1-H03", back >= 85 && back <= 95, "heading from encoders round-trips a 90 degree turn (FR-16)");
 	}
-	CHECK_T("S1-H02", deg_to_counts(90) > 0 && deg_to_counts(180) == 2 * deg_to_counts(90),
-		"turn distance scales with the angle");
+	/* integer rounding: the 180 degree goal may differ from 2 x 90 by 1 % */
+	n = deg_to_counts(180) - 2 * deg_to_counts(90);
+	CHECK_T("S1-H02", deg_to_counts(90) > 0 && abs(n) * 100 <= 2 * deg_to_counts(90),
+		"turn distance scales with the angle (1%)");
+	{
+		FAULT_MON fm;
+		INT duty[2] = { 500, 500 };
+		INT d_enc[2] = { 0, 5 };	/* left silent, right counting */
+		INT d_stall[2] = { 0, 0 };	/* both silent */
+		UB f = 0;
+		int k, first = -1;
+
+		fault_mon_reset(&fm);
+		for (k = 0; k < ENC_FAULT_TICKS; k++) {
+			f = fault_mon_step(&fm, duty, d_enc);
+			if (f != 0U && first < 0) { first = k + 1; }
+		}
+		CHECK_T("S1-H04", f == FAULT_ENCODER && first == ENC_FAULT_TICKS,
+			"one wheel silent while the other turns -> encoder fault after 300 ms");
+		fault_mon_reset(&fm);
+		for (k = 0; k < ENC_FAULT_TICKS; k++) { f = fault_mon_step(&fm, duty, d_stall); }
+		CHECK_T("S1-H05", f == FAULT_MOTOR_STALL, "both wheels driven but silent -> motor stall");
+		duty[0] = duty[1] = ENC_FAULT_DUTY;	/* low duty: wheels may stand still */
+		fault_mon_reset(&fm);
+		for (k = 0; k < 3 * ENC_FAULT_TICKS; k++) { f = fault_mon_step(&fm, duty, d_stall); }
+		CHECK_T("S1-H06", f == 0U, "no fault at low duty with no counts");
+	}
+	CHECK_T("S1-H07", nav_watchdog_speed(0, SPEED_NORMAL_MMPS) == SPEED_NORMAL_MMPS &&
+		nav_watchdog_speed(NAV_SLOW_TICKS, SPEED_NORMAL_MMPS) == SPEED_SLOW_MMPS &&
+		nav_watchdog_speed(NAV_STOP_TICKS, SPEED_NORMAL_MMPS) == 0,
+		"Mission watchdog: normal, then slow after 200 ms, then stop after 500 ms");
 
 	/* ---------------- subsystem 2 ---------------- */
 	CHECK_T("S2-U01", decode("WNNNNWNNW", &ch) == BCD_OK && ch == 'A', "decode *A*");
@@ -319,6 +351,43 @@ int main(void)
 
 				CHECK_T("S5-H02", scan_evaluate(w, &r) && r.side == OBS_SIDE_RIGHT, "box extends left -> go right");
 			}
+		}
+
+		/* ---- interrupt-driven echo capture (Tribunal 1, replaces the busy-wait) ---- */
+		{
+			ECHO e = {0};
+			BOOL done;
+
+			/* 1750 us pulse = 300 mm */
+			echo_arm(&e);
+			done = echo_edge(&e, 1000, ECHO_EDGE_RISE);
+			CHECK_T("S5-H04a", !done && e.armed, "rising edge alone does not complete");
+			done = echo_edge(&e, 2750, ECHO_EDGE_FALL);
+			CHECK_T("S5-H04b", done && e.width_us == 1750 && echo_us_to_mm(e.width_us) == 300 && !e.armed,
+				"falling edge completes: 1750 us -> 300 mm, disarmed");
+
+			/* timer wrap between the edges */
+			echo_arm(&e);
+			echo_edge(&e, 0xFFFFFF00u, ECHO_EDGE_RISE);
+			done = echo_edge(&e, 0x00000100u, ECHO_EDGE_FALL);
+			CHECK_T("S5-H04c", done && e.width_us == 0x200, "timer wrap-around is harmless");
+
+			/* a falling edge left over from the previous ping, before our rising edge */
+			echo_arm(&e);
+			done = echo_edge(&e, 500, ECHO_EDGE_FALL);
+			CHECK_T("S5-H04d", !done && e.armed, "stale falling edge ignored");
+
+			/* edges after a timeout (disarmed) are ignored */
+			echo_arm(&e);
+			echo_disarm(&e);
+			echo_edge(&e, 100, ECHO_EDGE_RISE);
+			done = echo_edge(&e, 900, ECHO_EDGE_FALL);
+			CHECK_T("S5-H04e", !done && !e.have_rise, "edges after a timeout are ignored");
+
+			/* conversion limits: no pulse, and a pulse longer than ~2 m, are 'no echo' */
+			CHECK_T("S5-H04f", echo_us_to_mm(0) == SCAN_NO_ECHO && echo_us_to_mm(ECHO_MAX_US + 1) == SCAN_NO_ECHO &&
+				echo_us_to_mm(ECHO_MAX_US) > 0 && echo_us_to_mm(583) == 99,
+				"0 or > 12 ms = no echo; 583 us = 99 mm");
 		}
 	}
 

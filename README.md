@@ -1,8 +1,11 @@
 # Robo Pico Car: INF2004 Group 11
 
 The aim of this project is to build an autonomous line-following car. It follows a
-black line, reads Code 39 barcodes (A to D) to execute commands (left/right turn, uturn), measures hump
-height, detects shocks, detects obstacle and perform obstacle avoidance, and reports to an online dashboard.
+black line, reads Code 39 barcodes (any character A to Z, scanned in either direction) and stores the
+character, then at the next cross junction performs the movement mapped to it: forward, U-turn, left or
+right. The character-to-movement mapping is sent to the car over MQTT before the demo, not hard-coded.
+It also measures hump height, detects shocks, detects obstacles and performs obstacle avoidance, and
+reports to an online dashboard using compact binary messages. Details: [TEAM.md](TEAM.md), section 7.
 
 ## Tech stack
 
@@ -10,11 +13,11 @@ height, detects shocks, detects obstacle and perform obstacle avoidance, and rep
 |---|---|
 | Language | C (the requirements ask for C99 and Barr-C; the build uses `gnu11` and currently compiles without warnings) |
 | RTOS | **micro T-Kernel 3.0**, dual-core RP2040 port |
-| SDK | Raspberry Pi **Pico C SDK** 2.2.0 (USB and WiFi driver source) |
-| Compiler | Arm GNU Toolchain, `arm-none-eabi-gcc` |
+| SDK | Raspberry Pi **Pico C SDK** 2.2.0 or newer (USB and WiFi driver source; 2.3.0 also builds without warnings) |
+| Compiler | Arm GNU Toolchain, `arm-none-eabi-gcc` (tested with 15.3.Rel1) |
 | Build | GNU `make` (`build_make/`), output is a `.uf2` file |
 | Microcontroller | Raspberry Pi **Pico W** (RP2040, CYW43439 WiFi) on a Cytron **Robo Pico** |
-| Communication | WiFi + MQTT (QoS 0 telemetry, QoS 1 commands) |
+| Communication | WiFi + MQTT, compact binary messages: 11-byte telemetry (QoS 0), 3-byte movement mapping (QoS 1) |
 | Tests | Unit tests on a PC (`testing/host`), on-target self-tests (`make TEST=1`), manual test logs |
 
 ### Hardware
@@ -34,10 +37,10 @@ The full pin table, with owners, is in [TEAM.md](TEAM.md).
 | Member | Student ID | Subsystem (folder) | Responsible for |
 |---|---|---|---|
 | Tan Kun Yi Dave | 2502730 | Motor control (`app_program/motor_control/`) | PID speed control, wheel encoders, drift correction, 90° and 180° turns, start button |
-| Vania Teng | 2503206 | Line following and barcode (`app_program/line_barcode/`) | three IR sensors, 1 kHz sampler, line following, barcode decoding |
+| Vania Teng | 2503206 | Line following and barcode (`app_program/line_barcode/`) | three IR sensors, 1 kHz sampler, line following, cross-junction detection, Code 39 decoding (A–Z, both directions) |
 | Lau Sook Yee | 2503178 | IMU and terrain (`app_program/imu_terrain/`) | hump height, tallest hump, shock detection |
-| Wong Jun Kai | 2500258 | Dashboard and telemetry (`app_program/dashboard/`) | telemetry frame every 500 ms, WiFi and MQTT status, JSON, heartbeat, remote E_STOP and RESUME |
-| Felix Koh | 2500256 | Mission and obstacle avoidance (`app_program/mission_obstacle/`) | system state machine, ultrasonic and servo obstacle scan, bypass, system integration |
+| Wong Jun Kai | 2500258 | Dashboard and telemetry (`app_program/dashboard/`) | binary telemetry frame every 500 ms, WiFi and MQTT status, heartbeat, movement mapping received over MQTT |
+| Felix Koh | 2500256 | Mission and obstacle avoidance (`app_program/mission_obstacle/`) | system state machine, stored barcode command carried out at cross junctions, ultrasonic and servo obstacle scan, bypass, system integration |
 
 Each subsystem has its own folder and its own test log in `testing/<folder>/TEST_LOG.md`.
 Only the owner edits their folder. Shared files (`app_program/app.h`, `app_if.h`,
@@ -84,6 +87,9 @@ mkdir -p ~/pico && cd ~/pico
 git clone --branch 2.2.0 https://github.com/raspberrypi/pico-sdk.git
 cd pico-sdk && git submodule update --init lib/tinyusb lib/cyw43-driver
 ```
+
+If you already have SDK 2.3.0 installed you can keep it: every build option below
+compiles with it, with no warnings.
 
 On macOS, install the Arm GNU Toolchain (AArch32 bare-metal, `arm-none-eabi`) from
 <https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads>. Then add both
@@ -138,14 +144,16 @@ start the car and press it again to stop. The status LED blinks slowly when idle
 
 For the online dashboard build with `NET=lwip MQTT=1` and copy
 `config/wifi_secrets.example.h` to `config/wifi_secrets.h`, then enter your network
-details. That file is ignored by git, so never commit it. The link between the dashboard
-task and the MQTT client is not finished yet (see below). Until then the telemetry JSON
-is printed on the console instead.
+details. That file is ignored by git, so never commit it. Without it the build stops with
+`fatal error: wifi_secrets.h: No such file or directory`. The link between the dashboard
+task and the MQTT client is not finished yet (see below). Until then the telemetry is
+printed on the console instead. The current code still formats it as JSON; the agreed
+binary formats that replace it are in [TEAM.md](TEAM.md), section 7.
 
 ## Testing
 
 ```sh
-cd testing/host && make run        # 80 checks of the logic, on your computer
+cd testing/host && make run        # 86 checks of the logic, on your computer
 cd build_make && make TEST=1 -j8   # on-target tests: read the console for [TEST] ... PASS/FAIL
 ```
 
@@ -160,7 +168,7 @@ subsystems in `testing/integration/` and `testing/system/`. How to write a test 
   GP25 and GP29 (Pico W radio). GP0 and GP1 are free unless you build with `CRASH_REPORT=1`.
 * Commit small changes, pull before you push, and ask the owner before editing someone
   else's folder.
-* Task priorities are 12 to 16 because the kernel uses 1 to 4. Do not change them without
+* Task priorities are 12 to 19 (one level per task) because the kernel uses 1 to 4. Do not change them without
   agreement from the team.
 
 ---
