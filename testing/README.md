@@ -77,7 +77,7 @@ the test's result row. `videos/README.md` explains how.
 
 The pure logic files (PID and quadrature maths, line PD, barcode decoder, IMU
 hump/shock logic, mission statechart, obstacle profile, dashboard statechart and
-JSON) touch no hardware and no kernel call, so they are also compiled and run on
+telemetry/command formats) touch no hardware and no kernel call, so they are also compiled and run on
 a PC:
 
 ```sh

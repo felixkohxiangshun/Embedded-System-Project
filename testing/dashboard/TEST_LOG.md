@@ -11,16 +11,19 @@ Define a test here before running it. Test IDs never change.
 
 | ID | What is tested | Requirement / interface | Method | Steps / how | Expected result |
 |---|---|---|---|---|---|
-| S4-U01 | telemetry JSON has the expected fields | FR-16 | auto, host | `dashboard_test.c` | `[TEST] S4-U01 PASS` |
+| S4-U01 | **Superseded 2026-11-05 (TEAM.md §7):** telemetry becomes the 11-byte binary frame, see S4-U10. Was: telemetry JSON has the expected fields | FR-16 | auto, host | `dashboard_test.c` | `[TEST] S4-U01 PASS` |
 | S4-U02 | worst-case frame ≤ 512 bytes (measured 200) | NFR-13 | auto, host | `dashboard_test.c` | `[TEST] S4-U02 PASS` |
 | S4-U03 | too-small buffer is refused, not overrun | NFR-13 | auto, host | `dashboard_test.c` | `[TEST] S4-U03 PASS` |
-| S4-U04 | E_STOP / RESUME parsed, junk ignored | FR-17 | auto, host | `dashboard_test.c` | `[TEST] S4-U04 PASS` |
+| S4-U04 | **Superseded 2026-11-05 (TEAM.md §7):** remote E-stop and RESUME removed. Was: E_STOP / RESUME parsed, junk ignored | FR-17 | auto, host | `dashboard_test.c` | `[TEST] S4-U04 PASS` |
 | S4-U05 | connection statechart: WIFI → MQTT → ONLINE → HEARTBEAT → RECONNECTING | 6.5, FR-14, FR-15, FR-18 | auto, host | `dashboard_test.c` | `[TEST] S4-U05 PASS` |
 | S4-I01 | Telemetry sends a frame every 500 ms | FR-16 | auto | `dashboard_test.c` | `[TEST] S4-I01 PASS` |
 | S4-M01 | WiFi joins the venue SSID (needs `NET=lwip MQTT=1` and `config/wifi_secrets.h`) | FR-14 | manual | Boot, watch console / `cyw43_utk_get_status()`. | joined and IP within 30 s |
 | S4-M02 | **blocked until IF-12 is agreed:** broker receives a frame every 500 ms at QoS 0 | FR-15, FR-16, NFR-12 | manual | Subscribe to the topic with an MQTT client. | one frame per 500 ms |
-| S4-M03 | **blocked until IF-12 is agreed:** E_STOP from the dashboard halts the car; RESUME re-enters LINE_FOLLOW | FR-17, NFR-12 | manual | Publish E_STOP then RESUME. | motors stop / restart |
+| S4-M03 | **Superseded 2026-11-05 (TEAM.md §7):** remote E-stop and RESUME removed. Was: **blocked until IF-12 is agreed:** E_STOP from the dashboard halts the car; RESUME re-enters LINE_FOLLOW | FR-17, NFR-12 | manual | Publish E_STOP then RESUME. | motors stop / restart |
 | S4-M04 | heartbeat when no telemetry is sent | FR-18 | manual | Stop Telemetry (or pull the car's data) for 3 s. | heartbeat every 1 s |
+| S4-U10 | binary telemetry: pack a known frame into 11 bytes and unpack it, every field equal; out-of-range values clamped | FR-16, NFR-13 | auto, host | `dashboard_test.c` | `[TEST] S4-U10 PASS` |
+| S4-U11 | movement mapping command: 3 bytes unpacked into four characters; a letter value 26–31 rejects the whole command | FR-03, FR-17 | auto, host | `dashboard_test.c` | `[TEST] S4-U11 PASS` |
+| S4-M10 | the PC receives one 11-byte frame every 500 ms and decodes it to the values shown on the console | FR-16, NFR-12 | manual | Subscribe from the PC for 2 minutes. | every frame decodes; no gaps in the sequence number |
 
 *Method:* **auto** = `TEST_CHECK` in code, result printed on the console
 (`make TEST=1`); **host** = the same check also runs on a PC (`testing/host`);

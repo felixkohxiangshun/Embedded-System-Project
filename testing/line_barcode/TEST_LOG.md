@@ -27,6 +27,9 @@ Define a test here before running it. Test IDs never change.
 | S2-M02 | follow the line around the track 5 laps | FR-01 | manual | Run with Motor and Mission. | no loss of line |
 | S2-M03 | barcode live decode rate ≥ 95 % over 20 passes (A, B, C, D) | FR-02, NFR-05 | manual | Pass each barcode 5 times at operating speed. | ≥ 19 of 20 correct |
 | S2-M04 | line follows while a barcode is scanned | FR-02 | manual | Scan a barcode while on the line. | car does not leave the line |
+| S2-U30 | every character A–Z decodes from its Code 39 pattern | FR-02, FR-03 | auto, host | `lb_host_tests.c` | `[TEST] S2-U30 PASS` |
+| S2-U31 | each character decodes to the same letter when the code is read in the opposite direction | FR-02, FR-03 | auto, host | `lb_host_tests.c` | `[TEST] S2-U31 PASS` |
+| S2-M20 | live decode of the demo characters, crossed in both directions, 5 passes each way | FR-02, NFR-05 | manual | Drive over each code both ways at operating speed. | ≥ 95 % correct, same letter both ways |
 
 *Method:* **auto** = `TEST_CHECK` in code, result printed on the console
 (`make TEST=1`); **host** = the same check also runs on a PC (`testing/host`);
