@@ -1,0 +1,15 @@
+S1_TEST_DIST re-run after calibration, car on the floor beside a 50 cm ruler,
+make TEST=1 (WHEEL_MM_PER_REV 216, TRACK_MM10 1138, S1_DIST_GOAL_MM 450).
+Console lines from the VS Code Serial Monitor; [telemetry] lines removed.
+Ruler reading at the front axle: about 460 mm in every run (Dave).
+
+[DIST] run 1: dist_mm=456  enc_l=5610 enc_r=5603 - read the ruler at the front axle now
+[TEST] S1-M21 PASS  drove forward on both wheels and stopped near the goal (compare dist_mm with the ruler)
+[DIST] run 2: dist_mm=455  enc_l=5595 enc_r=5595 - read the ruler at the front axle now
+[TEST] S1-M21 PASS  drove forward on both wheels and stopped near the goal (compare dist_mm with the ruler)
+[DIST] run 3: dist_mm=456  enc_l=5603 enc_r=5591 - read the ruler at the front axle now
+[TEST] S1-M21 PASS  drove forward on both wheels and stopped near the goal (compare dist_mm with the ruler)
+[DIST] if the ruler differs: WHEEL_MM_PER_REV = 216 x ruler_mm / dist_mm
+
+Result: dist_mm averages 456 against about 460 by ruler, -0.9 %, inside +/-3 %.
+WHEEL_MM_PER_REV 216 kept.

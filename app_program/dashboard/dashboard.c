@@ -1,19 +1,14 @@
-/*
- *	dashboard.c
- *	Dashboard -- Dashboard: creates its message buffers, starts its task.
- */
-
 #include "dashboard.h"
 
-EXPORT ID	mbf_telem;	/* IF-09  Telemetry -> Dashboard           */
-EXPORT ID	mbf_mqtt_out;	/* IF-12  Dashboard -> MQTT service task   */
-EXPORT ID	mbf_mqtt_in;	/* IF-12  MQTT service task -> Dashboard   */
+EXPORT ID	mbf_telem;
+EXPORT ID	mbf_mqtt_out;
+EXPORT ID	mbf_mqtt_in;
 EXPORT ID	tid_dashboard;
 EXPORT ID	tid_telemetry;
 
 EXPORT ER dashboard_init(void)
 {
-	/* telemetry: room for 4 frames (2 s) if the Dashboard is delayed */
+
 	mbf_telem = app_make_mbf((INT)sizeof(MSG_TELEM), 4);
 	if (mbf_telem < E_OK) {
 		return mbf_telem;

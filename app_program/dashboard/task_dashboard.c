@@ -1,19 +1,3 @@
-/*
- *	task_dashboard.c
- *	Dashboard -- the Dashboard / WiFi task (design review 6.5).
- *
- *	States  WIFI_CONNECTING, MQTT_CONNECTING, ONLINE, HEARTBEAT, RECONNECTING
- *	        (the logic is in dash_logic.c)
- *
- *	Every 100 ms: read the WiFi state, drain mbf_mqtt_in (broker events and
- *	commands), take the newest telemetry frame from mbf_telem, step the
- *	statechart, and send what it asks for to mbf_mqtt_out.  Dashboard
- *	commands (E_STOP, RESUME) are forwarded to Mission on mbf_mqttcmd.
- *
- *	It never calls cyw43/lwIP/MQTT functions.  A slow or failed network can
- *	therefore never delay driving: this is the lowest-priority task.
- */
-
 #include "dashboard.h"
 #if TM_WIFI_CYW43
 #include "cyw43_utk.h"
@@ -25,6 +9,25 @@ EXPORT volatile UW s4_console_lines;
 
 #define DASH_TICK_MS	100
 
+#if APP_TEST && TM_WIFI_CYW43 && TM_NET_LWIP
+
+LOCAL void report_wifi_test_status(void)
+{
+	T_CYW43_UTK_STATUS st;
+	UW ip;
+	cyw43_utk_get_status(&st);
+	if (st.link_status == 3 && st.ip_addr != 0) {
+		ip = st.ip_addr;
+		tm_printf((UB*)"[wifi-test] UP ip=%d.%d.%d.%d\n",
+			(INT)(ip & 0xff), (INT)((ip >> 8) & 0xff),
+			(INT)((ip >> 16) & 0xff), (INT)((ip >> 24) & 0xff));
+	} else {
+		tm_printf((UB*)"[wifi-test] NOT_UP link=%d ready=%d\n",
+			(INT)st.link_status, (INT)st.ready);
+	}
+}
+#endif
+
 LOCAL BOOL wifi_is_up(void)
 {
 #if TM_WIFI_CYW43
@@ -33,13 +36,13 @@ LOCAL BOOL wifi_is_up(void)
 	cyw43_utk_get_status(&st);
 	return (st.ready && st.link_status > 0 && st.ip_addr != 0) ? TRUE : FALSE;
 #else
-	return FALSE;			/* built with WIFI=none */
+	return FALSE;
 #endif
 }
 
 LOCAL void send_out(const char *json, INT len)
 {
-	static MQTT_MSG m;		/* too big for a 2 KB task stack */
+	static MQTT_MSG m;
 	INT i;
 
 	m.kind = MQTTM_PUBLISH;
@@ -62,6 +65,9 @@ EXPORT void dashboard_task(INT stacd, void *exinf)
 	SYSTIM          now;
 	INT             len;
 	UB              cmd;
+#if APP_TEST && TM_WIFI_CYW43 && TM_NET_LWIP
+	INT             wifi_report_ms = 0;
+#endif
 
 	(void)stacd; (void)exinf;
 	dash_init(&d);
@@ -69,13 +75,19 @@ EXPORT void dashboard_task(INT stacd, void *exinf)
 
 	while (1) {
 		tk_dly_tsk(DASH_TICK_MS);
+#if APP_TEST && TM_WIFI_CYW43 && TM_NET_LWIP
+		wifi_report_ms += DASH_TICK_MS;
+		if (wifi_report_ms >= 5000) {
+			wifi_report_ms = 0;
+			report_wifi_test_status();
+		}
+#endif
 
 		din.dt_ms = DASH_TICK_MS;
 		din.wifi_up = wifi_is_up();
 		din.mqtt_event = 0;
 		din.got_telem = FALSE;
 
-		/* events and commands from the MQTT service task */
 		while (MBF_RECV(mbf_mqtt_in, in, TMO_POL) > 0) {
 			if (in.kind == MQTTM_CONNECTED || in.kind == MQTTM_DISCONNECTED) {
 				din.mqtt_event = in.kind;
@@ -88,7 +100,6 @@ EXPORT void dashboard_task(INT stacd, void *exinf)
 			}
 		}
 
-		/* keep only the newest telemetry frame */
 		while (MBF_RECV(mbf_telem, t, TMO_POL) > 0) {
 			latest = t;
 			din.got_telem = TRUE;
@@ -96,7 +107,7 @@ EXPORT void dashboard_task(INT stacd, void *exinf)
 
 		dash_step(&d, &din, &dout);
 		s4_state = d.state;
-		if (state_lock(TMO_POL) == E_OK) {	/* tell Mission whether we are online */
+		if (state_lock(TMO_POL) == E_OK) {
 			app_state.net_online = (d.state == DASH_ONLINE || d.state == DASH_HEARTBEAT) ? 1 : 0;
 			state_unlock();
 		}
@@ -108,7 +119,7 @@ EXPORT void dashboard_task(INT stacd, void *exinf)
 				if (dout.publish_telem) {
 					send_out(json, len);
 				} else {
-					/* not online yet: show the frame on the console */
+
 					tm_printf((UB*)"[telemetry] %s\n", json);
 					s4_console_lines++;
 				}

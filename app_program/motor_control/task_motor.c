@@ -42,7 +42,10 @@ LOCAL INT   last_cnt[2];
 LOCAL INT   speed[2];
 LOCAL INT   total_counts;	/* sum of |delta| both wheels, for distance */
 LOCAL INT   drift_acc;
-LOCAL INT   stuck_ticks[2];
+LOCAL FAULT_MON fmon;
+LOCAL UB    motor_faults;	/* FAULT_ENCODER or FAULT_MOTOR_STALL, kept until the car moves again */
+LOCAL INT   nav_idle;		/* ticks in DRIVING since the last MSG_NAV */
+LOCAL BOOL  nav_timeout;	/* TRUE while stopped by the Mission watchdog */
 LOCAL INT   duty[2];
 LOCAL UW    done_seq;
 
@@ -58,7 +61,12 @@ LOCAL void enter(UB new_state)
 		pid_reset(&pid[0]);
 		pid_reset(&pid[1]);
 		drift_acc = 0;
-		stuck_ticks[0] = stuck_ticks[1] = 0;
+		fault_mon_reset(&fmon);
+	}
+	/* Keep the fault bits through the STOP that Mission sends in reply,
+	   so Telemetry (every 500 ms) can report them.  Moving again clears them. */
+	if (new_state != MOT_ENCODER_FAULT && new_state != MOT_STOPPED) {
+		motor_faults = 0U;
 	}
 	state = new_state;
 	s1_state = new_state;
@@ -78,7 +86,10 @@ LOCAL void seg_begin(void)
 	if (segs[seg_i].kind == SEG_TURN) {
 		INT deg = segs[seg_i].val < 0 ? -segs[seg_i].val : segs[seg_i].val;
 
-		seg_goal = deg_to_counts(deg);
+		seg_goal = deg_to_counts(deg) - TURN_COAST_COUNTS;
+		if (seg_goal < 0) {
+			seg_goal = 0;
+		}
 	} else {
 		seg_goal = mm_to_counts(segs[seg_i].val);
 	}
@@ -220,21 +231,19 @@ LOCAL void step_sequence(INT *tl, INT *tr)
 	}
 }
 
-LOCAL void check_encoders(void)
+/* Stuck-wheel check, once per tick while the motors are driven */
+LOCAL void check_encoders(INT dl, INT dr)
 {
-	INT w;
+	INT delta[2];
+	UB  f;
 
-	for (w = 0; w < 2; w++) {
-		if (iabs(duty[w]) > ENC_FAULT_DUTY && speed[w] == 0) {
-			stuck_ticks[w]++;
-		} else {
-			stuck_ticks[w] = 0;
-		}
-		if (stuck_ticks[w] >= ENC_FAULT_TICKS) {
-			stop_motors();
-			enter(MOT_ENCODER_FAULT);
-			return;
-		}
+	delta[0] = dl;
+	delta[1] = dr;
+	f = fault_mon_step(&fmon, duty, delta);
+	if (f != 0U) {
+		stop_motors();
+		enter(MOT_ENCODER_FAULT);	/* Mission reacts to this state */
+		motor_faults = f;		/* which fault: encoder or stall */
 	}
 }
 
@@ -250,18 +259,15 @@ LOCAL void publish(void)
 	app_state.enc_left = enc_cnt[0];
 	app_state.enc_right = enc_cnt[1];
 	app_state.cmd_done_seq = done_seq;
-	if (state == MOT_ENCODER_FAULT) {
-		app_state.fault_flags |= FAULT_ENCODER;
-	} else {
-		app_state.fault_flags &= (UB)~FAULT_ENCODER;
-	}
+	fault_write_locked(FAULT_OWN_MOTOR,
+			   (UB)(motor_faults | (nav_timeout ? FAULT_MISSION_TMO : 0U)));
 	state_unlock();
 }
 
 EXPORT void motor_task(INT stacd, void *exinf)
 {
 	MSG_NAV	nav;
-	INT	now[2], dl, dr, tl, tr, w;
+	INT	now[2], dl, dr, tl, tr, w, v;
 
 	(void)stacd; (void)exinf;
 
@@ -280,7 +286,16 @@ EXPORT void motor_task(INT stacd, void *exinf)
 		handle_events();
 		while (MBF_RECV(mbf_nav, nav, TMO_POL) > 0) {
 			handle_nav(&nav);
+			nav_idle = 0;		/* Mission is alive */
 		}
+		if (state == MOT_DRIVING) {
+			if (nav_idle < NAV_STOP_TICKS) {
+				nav_idle++;
+			}
+		} else {
+			nav_idle = 0;		/* turns and bypass run on their own */
+		}
+		nav_timeout = (nav_idle >= NAV_STOP_TICKS) ? TRUE : FALSE;
 
 		/* 2. wheel speeds from the encoders */
 		now[0] = enc_cnt[0];
@@ -305,8 +320,11 @@ EXPORT void motor_task(INT stacd, void *exinf)
 				drift_acc = 0;
 				w = 0;
 			}
-			tl = speed_set + (steer * STEER_GAIN_MMPS) / STEER_MAX - w;
-			tr = speed_set - (steer * STEER_GAIN_MMPS) / STEER_MAX + w;
+			v = nav_watchdog_speed(nav_idle, speed_set);
+			if (v > 0) {
+				tl = v + (steer * STEER_GAIN_MMPS) / STEER_MAX - w;
+				tr = v - (steer * STEER_GAIN_MMPS) / STEER_MAX + w;
+			}				/* else: Mission silent, hold still */
 			break;
 		case MOT_TURNING:
 		case MOT_BYPASS:
@@ -324,7 +342,7 @@ EXPORT void motor_task(INT stacd, void *exinf)
 			duty[1] = wheel_duty(1, tr);
 			motor_drive(0, duty[0]);
 			motor_drive(1, duty[1]);
-			check_encoders();
+			check_encoders(dl, dr);
 		}
 
 		/* 5. report */

@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="CSC11 Pico W connection monitor. Binary MQTT receive and transmit testing.">
+  <title>CSC11 — Pico W connection monitor</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="styles.css">
+  <script src="vendor/mqtt.min.js" defer></script>
+  <script src="app.mjs" type="module"></script>
+</head>
+<body>
+  <header class="app-header" id="overview">
+    <div class="app-identity"><h1>CSC11 <span>/ Pico W connection monitor</span></h1><p>INF2004 Embedded Systems Programming</p></div>
+    <div class="session-info"><span id="overall-badge" class="badge"><i></i>Connecting</span><time id="clock"></time></div>
+  </header>
+  <nav aria-label="Page sections"><a href="#connection">Connection</a><a href="#receive">Receive</a><a href="#transmit">Transmit</a><a href="#telemetry">Telemetry</a><a href="#activity">Event log</a><span>Diagnostic firmware</span></nav>
+
+  <main>
+    <p class="test-note">Test mode: the Pico sends a fixed 5-byte message. Sensor data and motor commands are not connected.</p>
+    <section class="status-strip" aria-label="Connection statistics">
+      <div><span class="status-label">Broker</span><strong id="broker-state">Connecting</strong><small id="broker-detail">Opening WebSocket connection</small></div>
+      <div><span class="status-label">Pico stream</span><strong id="pico-state">Waiting</strong><small id="pico-detail">No messages received</small></div>
+      <div><span class="status-label">Valid messages</span><strong id="packet-count" class="number">0</strong><small>Current page session</small></div>
+      <div><span class="status-label">Mean arrival interval</span><strong id="interval-value" class="number">—</strong><small>Target: 500 ms</small></div>
+    </section>
+
+    <div class="work-area">
+      <div class="receive-column">
+        <section class="section" id="receive">
+          <div class="section-title"><h2>Receive</h2><span id="stream-label" class="pill">Waiting for data</span></div>
+          <dl class="transport-details"><div><dt>Topic</dt><dd><code>csc11/dev/pico/tx</code></dd></div><div><dt>Delivery</dt><dd>QoS 0 / binary</dd></div><div><dt>Received at</dt><dd id="last-time">No message yet</dd></div></dl>
+          <div class="payload-row"><span>Payload (hex)</span><div class="hex-bytes" id="hex-bytes"><span>—</span><span>—</span><span>—</span><span>—</span><span>—</span></div></div>
+          <div class="payload-status"><span id="payload-validation">5-byte test fixture · QoS 0</span><span id="last-seen">Last received: —</span></div>
+          <div class="chart-heading"><h3>Inter-arrival times</h3><span>Last 40 messages / 0–1000 ms</span></div>
+          <div class="arrival-chart" id="arrival-chart" aria-label="Message arrival history"><span class="empty-chart">No intervals measured</span></div>
+          <p class="field-help">Measured at the browser. This is not sensor age or end-to-end latency.</p>
+        </section>
+
+        <section class="section telemetry-section" id="telemetry">
+          <div class="section-title"><h2>Telemetry</h2><span class="section-state">Not connected</span></div>
+          <table class="telemetry-table"><caption>Fields awaiting the agreed binary telemetry format</caption><thead><tr><th scope="col">Field</th><th scope="col">Value</th><th scope="col">Field</th><th scope="col">Value</th></tr></thead><tbody>
+            <tr><th scope="row">Mission state</th><td>—</td><th scope="row">Speed</th><td>—</td></tr>
+            <tr><th scope="row">Heading</th><td>—</td><th scope="row">Obstacle distance</th><td>—</td></tr>
+            <tr><th scope="row">Distance travelled</th><td>—</td><th scope="row">Last barcode</th><td>—</td></tr>
+            <tr><th scope="row">Peak hump height</th><td>—</td><th scope="row">Shock event</th><td>—</td></tr>
+          </tbody></table>
+        </section>
+      </div>
+
+      <div class="control-column">
+        <section class="section" id="connection">
+          <div class="section-title"><h2>Connection</h2></div>
+          <form id="connection-form"><label for="broker-url">Broker WebSocket address</label><input id="broker-url" type="url" value="ws://127.0.0.1:9001/mqtt" required spellcheck="false"><p id="connection-error" class="form-error" role="alert"></p><div class="button-row"><button type="submit" id="connect-button">Reconnect</button><button type="button" id="disconnect-button">Disconnect</button></div></form>
+          <table class="link-table"><caption>Connection path</caption><tbody><tr><th scope="row"><span id="pico-node" class="link-state" aria-hidden="true"></span>Pico W</th><td>WiFi / MQTT TCP</td></tr><tr><th scope="row"><span id="broker-node" class="link-state" aria-hidden="true"></span>Mac broker</th><td>Mosquitto</td></tr><tr><th scope="row"><span id="browser-node" class="link-state" aria-hidden="true"></span>This browser</th><td>MQTT WebSocket</td></tr></tbody></table>
+        </section>
+
+        <section class="section transmit-section" id="transmit">
+          <div class="section-title"><h2>Transmit test</h2></div>
+          <dl class="transport-details"><div><dt>Topic</dt><dd><code>csc11/dev/pico/rx</code></dd></div><div><dt>Payload</dt><dd><code>8D 23 01 00 FF</code></dd></div><div><dt>Delivery</dt><dd>QoS 1 / not retained</dd></div></dl>
+          <button class="send-button" id="send-reply" disabled>Send test reply</button>
+          <p id="reply-status" class="reply-status" role="status">Connect to the broker to send a reply.</p>
+          <p class="field-help">Verify receipt on the Pico console: <code>[mqtt-test] RX PASS</code>. A broker ACK alone does not confirm Pico receipt.</p>
+        </section>
+      </div>
+    </div>
+
+    <section class="section log-section" id="activity"><div class="section-title"><h2>Event log</h2><button id="clear-log" class="compact-button">Clear log</button></div><div class="log-head" aria-hidden="true"><span>Time</span><span>Event</span></div><ol class="event-list" id="event-list" aria-label="Connection events"></ol></section>
+    <footer><span>CSC11 Robo Pico / connection test</span><span>Telemetry: pending integration</span></footer>
+  </main>
+</body>
+</html>

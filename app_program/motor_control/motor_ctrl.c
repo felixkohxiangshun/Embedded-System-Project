@@ -73,12 +73,13 @@ EXPORT INT mm_to_counts(INT mm)
 }
 
 /* In a pivot each wheel travels an arc of pi * TRACK * deg / 360 mm.
-   (pi is taken as 314/100.)  NFR-15 asks for +/-5 degrees. */
+   (pi is taken as 314/100.)  NFR-15 asks for +/-5 degrees.
+   Worked in 0.1 mm so a 0.5 mm change of TRACK_MM10 still counts. */
 EXPORT INT deg_to_counts(INT deg)
 {
-	INT mm = (deg * TRACK_MM * 314) / 36000;
+	INT mm10 = (deg * TRACK_MM10 * 314) / 36000;
 
-	return mm_to_counts(mm);
+	return (mm10 * ENC_COUNTS_PER_REV) / (WHEEL_MM_PER_REV * 10);
 }
 
 /* Inverse of deg_to_counts(): the angle of a pivot in which each wheel
@@ -87,5 +88,50 @@ EXPORT INT counts_to_deg(INT counts)
 {
 	INT mm = (counts * WHEEL_MM_PER_REV) / ENC_COUNTS_PER_REV;
 
-	return (mm * 36000) / (TRACK_MM * 314);
+	return (mm * 36000) / ((TRACK_MM10 * 314) / 10);
+}
+
+EXPORT void fault_mon_reset(FAULT_MON *f)
+{
+	f->stuck[0] = 0;
+	f->stuck[1] = 0;
+}
+
+EXPORT UB fault_mon_step(FAULT_MON *f, const INT duty[2], const INT delta[2])
+{
+	INT w;
+	INT mag;
+
+	for (w = 0; w < 2; w++) {
+		mag = (duty[w] < 0) ? -duty[w] : duty[w];
+		if ((mag > ENC_FAULT_DUTY) && (delta[w] == 0)) {
+			if (f->stuck[w] < ENC_FAULT_TICKS) {
+				f->stuck[w]++;
+			}
+		} else {
+			f->stuck[w] = 0;
+		}
+	}
+	if ((f->stuck[0] < ENC_FAULT_TICKS) && (f->stuck[1] < ENC_FAULT_TICKS)) {
+		return 0U;
+	}
+	/* One wheel has been stuck long enough.  If the other one is (nearly)
+	   as stuck, nothing turns: the car is blocked.  Otherwise the car is
+	   moving, so the silent wheel must be turning too: its encoder failed. */
+	if ((f->stuck[0] >= (ENC_FAULT_TICKS / 2)) &&
+	    (f->stuck[1] >= (ENC_FAULT_TICKS / 2))) {
+		return FAULT_MOTOR_STALL;
+	}
+	return FAULT_ENCODER;
+}
+
+EXPORT INT nav_watchdog_speed(INT idle_ticks, INT speed_set)
+{
+	if (idle_ticks >= NAV_STOP_TICKS) {
+		return 0;
+	}
+	if ((idle_ticks >= NAV_SLOW_TICKS) && (speed_set > SPEED_SLOW_MMPS)) {
+		return SPEED_SLOW_MMPS;
+	}
+	return speed_set;
 }
