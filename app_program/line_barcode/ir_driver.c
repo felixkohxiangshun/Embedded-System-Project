@@ -38,7 +38,7 @@
 /* Input pins in channel order. */
 static UINT const g_pin[NUM_CHANNELS] =
 {
-    PIN_IR_LEFT, PIN_IR_CENTER, PIN_IR_RIGHT
+    PIN_IR_RIGHT, PIN_IR_CENTER, PIN_IR_BARCODE
 };
 
 static ir_filter_t      g_filter[NUM_CHANNELS];
@@ -62,9 +62,9 @@ ir_driver_init (void)
         g_dark[chan] = 0;
 
 #if (LB_BC_USE_GPIO_LEVEL != 0)
-        if (IR_CHANNEL_RIGHT == chan)
+        if (IR_CHANNEL_BARCODE == chan)
         {
-            /* The right (barcode) sensor is wired to its digital output
+            /* The barcode sensor is wired to its digital output
              * (DO) and is read as a plain GPIO level, not with the ADC. */
             (void)gpio_set_pin(g_pin[chan], GPIO_MODE_IN);
         }
@@ -103,7 +103,7 @@ ir_sampler_isr (void * p_exinf)
     g_lb_stats.sampler_runs++;
 
     /* Line sensors: 10 ms average, published for line_task. */
-    for (chan = IR_CHANNEL_LEFT; chan <= IR_CHANNEL_CENTRE; chan++)
+    for (chan = IR_CHANNEL_RIGHT; chan <= IR_CHANNEL_CENTRE; chan++)
     {
         g_dark[chan] = ir_filter_push(&g_filter[chan], adc_read_dark(chan));
     }
@@ -111,9 +111,9 @@ ir_sampler_isr (void * p_exinf)
     /* Barcode sensor (digital level): same average, then the slicer finds
      * the edges.  The average adds the same delay to every edge, so the
      * element widths that the decoder measures are not changed. */
-    dark_bar = ir_filter_push(&g_filter[IR_CHANNEL_RIGHT],
+    dark_bar = ir_filter_push(&g_filter[IR_CHANNEL_BARCODE],
                               read_barcode_dark());
-    g_dark[IR_CHANNEL_RIGHT] = dark_bar;
+    g_dark[IR_CHANNEL_BARCODE] = dark_bar;
 
     if (bc_slicer_step(&g_slicer, dark_bar, start_us, &edge))
     {
@@ -229,12 +229,12 @@ read_barcode_dark (void)
     int32_t dark = 0;
 
 #if (LB_BC_USE_GPIO_LEVEL != 0)
-    bool b_high = (0u != gpio_get_val(PIN_IR_RIGHT));
+    bool b_high = (0u != gpio_get_val(PIN_IR_BARCODE));
     bool b_dark = (b_high == (0 != LB_BC_GPIO_DARK_IS_HIGH));
 
     dark = b_dark ? LB_BC_GPIO_DARK_COUNT : LB_BC_GPIO_LIGHT_COUNT;
 #else
-    dark = adc_read_dark(IR_CHANNEL_RIGHT);
+    dark = adc_read_dark(IR_CHANNEL_BARCODE);
 #endif
 
     return (dark);

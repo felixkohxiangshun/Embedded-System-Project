@@ -18,6 +18,12 @@
 
 #include "mission_obstacle.h"
 
+/* Junction floor test: 0 drops barcode results, so a false read cannot turn
+   the car.  Restore 1 after the test. */
+#ifndef MISSION_USE_BARCODE
+#define MISSION_USE_BARCODE	0
+#endif
+
 EXPORT volatile UW s5_mission_ticks;
 EXPORT volatile UB s5_mission_state;
 
@@ -87,6 +93,7 @@ EXPORT void mission_task(INT stacd, void *exinf)
 	UINT         ptn;
 	UB           motor_state = MOT_STOPPED;
 	UW           done_seq = 0;
+	UW           dist_mm = 0;
 
 	(void)stacd; (void)exinf;
 	gpio_set_pin(PIN_LED_STATUS, GPIO_MODE_OUT);
@@ -111,7 +118,9 @@ EXPORT void mission_task(INT stacd, void *exinf)
 			mission_on_obs(&m, &ob, &act);
 		}
 		while (MBF_RECV(mbf_bccmd, bc, TMO_POL) > 0) {
+#if MISSION_USE_BARCODE
 			mission_on_barcode(&m, &bc, &act);
+#endif
 		}
 		while (MBF_RECV(mbf_steer, st, TMO_POL) > 0) {
 			mission_on_steer(&m, &st, &act);
@@ -122,8 +131,10 @@ EXPORT void mission_task(INT stacd, void *exinf)
 			motor_state = app_state.motor_state;
 			done_seq = app_state.cmd_done_seq;
 			m.net_online = app_state.net_online;
+			dist_mm = app_state.dist_mm;
 			state_unlock();
 		}
+		mission_on_distance(&m, dist_mm, &act);
 		mission_on_tick(&m, MISSION_TICK_MS, motor_state, done_seq, &act);
 
 		apply(&act);

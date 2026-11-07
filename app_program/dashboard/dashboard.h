@@ -7,6 +7,8 @@
 #define MQTTM_COMMAND		2
 #define MQTTM_CONNECTED		3
 #define MQTTM_DISCONNECTED	4
+#define MQTTM_DEBUG		5	/* binary debug frame (debug topic) */
+#define MQTTM_HEARTBEAT		6	/* binary heartbeat (heartbeat topic) */
 
 #include "dash_logic.h"
 

@@ -12,6 +12,7 @@
 #include "imu_terrain/imu_terrain.h"
 #include "dashboard/dashboard.h"
 #include "mission_obstacle/mission_obstacle.h"
+#include "dashboard/protocol_bits.h"
 
 static int pass_, fail_;
 
@@ -139,6 +140,47 @@ int main(void)
 		CHECK_T("S3-U06b", l.state == IMU_CALIBRATING, "recovery recalibrates");
 	}
 
+	/* ---------------- subsystem 4: binary frames (TEAM.md 7) ---------------- */
+	{
+		MSG_TELEM t;
+		DASH_DEBUG g;
+		UB f[DASH_DEBUG_BYTES];
+		uint32_t cur = 0, v[12];
+		static const uint32_t tmax[12] = { 255, 15, 511, 65535, 359, 1, 255, 31, 31, 127, 1, 255 };
+		static const uint32_t gmax[12] = { 255, 1023, 1023, 1023, 2047, 3, 255, 255, 255, 31, 4095, 7 };
+		int i, ok = 1;
+
+		memset(&t, 0, sizeof t);
+		t.sys_state = SYS_LINE_FOLLOW; t.speed_mmps = -40; t.dist_mm = 70000; t.heading_deg = -90;
+		t.ir_line = 1; t.obs_dist_mm = 3000; t.last_barcode = 'Z'; t.hump_max_mm = 200; t.shock = 1;
+		t.fault_flags = 0x85;
+		CHECK_T("S4-U10a", dash_pack_telem(&t, 9, 2, f, DASH_TELEM_BYTES) == DASH_TELEM_BYTES,
+			"telemetry packs into 11 bytes");
+		for (i = 0; i < 12; i++) {
+			ok &= protocol_bits_get(f, DASH_TELEM_BYTES, &cur, tmax[i], &v[i]);
+		}
+		CHECK_T("S4-U10b", ok && cur == 81 && v[0] == 9 && v[1] == SYS_LINE_FOLLOW && (int)v[2] - 256 == -40 &&
+			v[3] == 70000 % 65536 && v[4] == 270 && v[5] == 1 && v[6] == 255 && v[7] == 25 &&
+			v[8] == 2 && v[9] == 127 && v[10] == 1 && v[11] == 0x85,
+			"every field unpacks; out-of-range values clamped, heading wrapped");
+		CHECK_T("S4-U10c", dash_pack_telem(&t, 0, 0, f, 10) == -1 && dash_char_code('a') == DASH_CHAR_NONE &&
+			dash_char_code('A') == 0, "short buffer refused; only A-Z have a code");
+
+		memset(&g, 0, sizeof g);
+		g.dark_c = 600; g.dark_r = 1500; g.err = -700; g.steer = 999; g.mode = 2;
+		g.bc_edges = 300; g.bc_ok = 1; g.bc_fail = 3; g.bc_last = 'B'; g.ultra_mm = 289; g.motor_state = MOT_DRIVING;
+		cur = 0; ok = 1;
+		CHECK_T("S4-U12a", dash_pack_debug(&g, 200, f, DASH_DEBUG_BYTES) == DASH_DEBUG_BYTES,
+			"debug frame packs into 12 bytes");
+		for (i = 0; i < 12; i++) {
+			ok &= protocol_bits_get(f, DASH_DEBUG_BYTES, &cur, gmax[i], &v[i]);
+		}
+		CHECK_T("S4-U12b", ok && cur == 95 && v[0] == 200 && v[1] == 600 && v[2] == 1023 && (int)v[3] - 512 == -512 &&
+			(int)v[4] - 1024 == 999 && v[5] == 2 && v[6] == 300 % 256 && v[7] == 1 && v[8] == 3 &&
+			v[9] == 1 && v[10] == 289 && v[11] == MOT_DRIVING,
+			"every debug field unpacks; out-of-range values clamped");
+	}
+
 	/* ---------------- subsystem 4 ---------------- */
 	{
 		MSG_TELEM t;
@@ -207,6 +249,24 @@ int main(void)
 		a = clear_act(); mission_on_button(&m, &a);
 		CHECK_T("S5-U01c", m.state == SYS_IDLE && (a.evt_flags & EVT_STOP), "button -> IDLE");
 		mission_on_button(&m, &a); a = clear_act();
+		s.steer = 500; s.flags = STEER_F_JUNCTION; mission_on_steer(&m, &s, &a);
+		CHECK_T("S5-H05a", m.state == SYS_LINE_FOLLOW && a.n_nav == 1 && a.nav[0].type == NAV_STEER &&
+			a.nav[0].arg == 0, "side branch: drives straight on");
+		a = clear_act(); s.flags = STEER_F_LOST | STEER_F_TIMEOUT; mission_on_steer(&m, &s, &a);
+		CHECK_T("S5-H05b", m.state == SYS_LINE_FOLLOW && a.nav[0].arg == 0, "no line ahead: no fault during the creep");
+		a = clear_act(); mission_on_distance(&m, 1000, &a);
+		mission_on_distance(&m, 1000 + JUNCTION_CREEP_MM - 1, &a);
+		CHECK_T("S5-H05c", m.state == SYS_LINE_FOLLOW && !(a.evt_flags & EVT_STOP), "still driving 1 mm short");
+		mission_on_distance(&m, 1000 + JUNCTION_CREEP_MM, &a);
+		CHECK_T("S5-H05d", m.state == SYS_BARCODE_CMD && a.n_nav == 1 && a.nav[0].type == NAV_TURN &&
+			a.nav[0].arg == JUNCTION_TURN_DEG, "after the creep distance: junction turn");
+		a = clear_act(); mission_on_tick(&m, 10, MOT_TURNING, 7, &a);
+		mission_on_tick(&m, 10, MOT_TURNING, 7, &a);
+		CHECK_T("S5-H05e", m.state == SYS_BARCODE_CMD && a.evt_flags == 0, "still turning");
+		mission_on_tick(&m, 10, MOT_STOPPED, 8, &a);
+		CHECK_T("S5-H05f", m.state == SYS_IDLE && (a.evt_flags & EVT_STOP) && !(a.evt_flags & EVT_RESUME),
+			"turn finished: stops and stays in IDLE");
+		s.flags = 0; a = clear_act(); mission_on_button(&m, &a); a = clear_act();
 		s.steer = 321; mission_on_steer(&m, &s, &a);
 		CHECK_T("S5-U02a", a.n_nav == 1 && a.nav[0].type == NAV_STEER && a.nav[0].arg == 321, "steering forwarded");
 		b.kind = BC_SEEN; b.cmd = 0; mission_on_barcode(&m, &b, &a);

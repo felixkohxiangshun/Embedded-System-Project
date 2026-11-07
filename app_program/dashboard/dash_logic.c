@@ -1,4 +1,5 @@
 #include "dashboard.h"
+#include "protocol_bits.h"
 
 EXPORT void dash_init(DASH *d)
 {
@@ -230,3 +231,90 @@ EXPORT UB dash_parse_cmd(const char *text, INT len)
 	}
 	return 0;
 }
+
+/* ---- Binary frames ------------------------------------------------------ */
+
+LOCAL INT clampi(INT v, INT lo, INT hi)
+{
+	return (v < lo) ? lo : ((v > hi) ? hi : v);
+}
+
+/* 'A'..'Z' -> 0..25, anything else -> DASH_CHAR_NONE */
+EXPORT UB dash_char_code(UB ch)
+{
+	return (ch >= 'A' && ch <= 'Z') ? (UB)(ch - 'A') : (UB)DASH_CHAR_NONE;
+}
+
+LOCAL BOOL put(UB *buf, INT size, UW *cur, INT value, UW maximum)
+{
+	uint32_t c = *cur;
+	int ok = protocol_bits_put(buf, (uint16_t)size, &c, (uint32_t)value, maximum);
+
+	*cur = c;
+	return ok ? TRUE : FALSE;
+}
+
+LOCAL void zero(UB *buf, INT n)
+{
+	INT i;
+
+	for (i = 0; i < n; i++) {
+		buf[i] = 0;
+	}
+}
+
+/* Returns DASH_TELEM_BYTES, or -1 if buf is too small */
+EXPORT INT dash_pack_telem(const MSG_TELEM *t, UB seq, UB stored_char,
+			   UB *buf, INT size)
+{
+	UW  cur = 0;
+	INT heading = t->heading_deg % 360;
+	BOOL ok = TRUE;
+
+	if (size < DASH_TELEM_BYTES) {
+		return -1;
+	}
+	if (heading < 0) {
+		heading += 360;
+	}
+	zero(buf, DASH_TELEM_BYTES);
+	ok &= put(buf, size, &cur, seq, 255);
+	ok &= put(buf, size, &cur, clampi(t->sys_state, 0, 15), 15);
+	ok &= put(buf, size, &cur, clampi(t->speed_mmps, -256, 255) + 256, 511);
+	ok &= put(buf, size, &cur, (INT)(t->dist_mm & 0xFFFFu), 65535);
+	ok &= put(buf, size, &cur, heading, 359);
+	ok &= put(buf, size, &cur, t->ir_line ? 1 : 0, 1);
+	ok &= put(buf, size, &cur, clampi(t->obs_dist_mm / 10, 0, 255), 255);
+	ok &= put(buf, size, &cur, dash_char_code(t->last_barcode), 31);
+	ok &= put(buf, size, &cur, clampi(stored_char, 0, 31), 31);
+	ok &= put(buf, size, &cur, clampi(t->hump_max_mm, 0, 127), 127);
+	ok &= put(buf, size, &cur, t->shock ? 1 : 0, 1);
+	ok &= put(buf, size, &cur, t->fault_flags, 255);
+	return ok ? DASH_TELEM_BYTES : -1;
+}
+
+/* Returns DASH_DEBUG_BYTES, or -1 if buf is too small */
+EXPORT INT dash_pack_debug(const DASH_DEBUG *g, UB seq, UB *buf, INT size)
+{
+	UW  cur = 0;
+	BOOL ok = TRUE;
+
+	if (size < DASH_DEBUG_BYTES) {
+		return -1;
+	}
+	zero(buf, DASH_DEBUG_BYTES);
+	ok &= put(buf, size, &cur, seq, 255);
+	ok &= put(buf, size, &cur, clampi(g->dark_c, 0, 1023), 1023);
+	ok &= put(buf, size, &cur, clampi(g->dark_r, 0, 1023), 1023);
+	ok &= put(buf, size, &cur, clampi(g->err, -512, 511) + 512, 1023);
+	ok &= put(buf, size, &cur, clampi(g->steer, -1024, 1023) + 1024, 2047);
+	ok &= put(buf, size, &cur, g->mode & 3u, 3);
+	ok &= put(buf, size, &cur, (INT)(g->bc_edges & 0xFFu), 255);
+	ok &= put(buf, size, &cur, (INT)(g->bc_ok & 0xFFu), 255);
+	ok &= put(buf, size, &cur, (INT)(g->bc_fail & 0xFFu), 255);
+	ok &= put(buf, size, &cur, dash_char_code(g->bc_last), 31);
+	ok &= put(buf, size, &cur, clampi(g->ultra_mm, 0, 4095), 4095);
+	ok &= put(buf, size, &cur, g->motor_state & 7u, 7);
+	return ok ? DASH_DEBUG_BYTES : -1;
+}
+

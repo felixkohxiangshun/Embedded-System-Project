@@ -39,9 +39,9 @@
 #define PIN_LED_STATUS		18
 #define PIN_BTN_START		20	/* active low */
 #define PIN_BTN_2		21	/* unused so far */
-#define PIN_IR_LEFT		26	/* ADC0 */
-#define PIN_IR_CENTER		27	/* ADC1 */
-#define PIN_IR_RIGHT		28	/* ADC2 (barcode) */
+#define PIN_IR_RIGHT		26	/* ADC0, right of the line sensor pair */
+#define PIN_IR_CENTER		27	/* ADC1, left of the line sensor pair */
+#define PIN_IR_BARCODE		28	/* ADC2, barcode sensor, left of the pair */
 
 /* ---------------------------------------------------------------------
  *  Task priorities: 1 is the highest; the kernel's USB console (3) and

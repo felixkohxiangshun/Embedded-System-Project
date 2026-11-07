@@ -3,11 +3,16 @@
  *	On-target tests for the Mission/obstacle subsystem (Mission, Scan).
  *	Built only with: make TEST=1.  Results: testing/mission_obstacle/TEST_LOG.md
  *
- *	The last test sends E_STOP, so it must stay the last thing that runs.
+ *	With S5_TEST_ESTOP on, the last test sends E_STOP, so it must stay the
+ *	last thing that runs.  Off, GP20 keeps working after the tests.
  */
 
 #include "mission_obstacle.h"
 #include "../test_report.h"
+
+#ifndef S5_TEST_ESTOP
+#define S5_TEST_ESTOP		0	/* INT-03: leaves the system in E_STOP */
+#endif
 
 #if APP_TEST
 
@@ -161,10 +166,12 @@ EXPORT void mission_obstacle_test(void)
 		tk_dly_tsk(10);			/* wait for INIT -> IDLE */
 	}
 	TEST_CHECK("S5-U11", s5_mission_state == SYS_IDLE, "Mission starts in IDLE after INIT");
+#if S5_TEST_ESTOP
 	q.cmd = MQTTCMD_ESTOP;
 	MBF_SEND(mbf_mqttcmd, q);
 	tk_dly_tsk(50);
 	TEST_CHECK("INT-03", s5_mission_state == SYS_E_STOP, "MQTT E_STOP on mbf_mqttcmd -> Mission E_STOP");
+#endif
 
 	TEST_SUMMARY("mission_obstacle");
 }

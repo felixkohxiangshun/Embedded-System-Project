@@ -3,13 +3,13 @@
  * @brief Line position estimate and PD steering for the two line sensors.
  *
  * @par
- * The left and the centre IR sensor straddle the line.  The target is the
+ * The centre and the right IR sensor straddle the line.  The target is the
  * point midway between them, so the sign of the error says which way the
  * line has moved and the car must steer (negative = left, positive = right).
  *
  * @par
  * Why the estimate survives a faded line: the position is the RATIO
- * left / (left + centre), which does not change when the whole line gets
+ * centre / (centre + right), which does not change when the whole line gets
  * lighter (worn tape, thin print, glare).  Only the sum, called the "line
  * mass", shrinks.  The mass tells how strongly the line shows and drives
  * two decisions: the line is "seen" down to about 10 percent of its nominal
@@ -46,11 +46,19 @@ typedef struct
     bool     b_primed;          /* prev_err and err_filt hold real values */
 } line_ctrl_t;
 
+/** Branch detector state. */
+typedef struct
+{
+    uint32_t start_mm;         /* distance when the dark run began */
+    bool     b_armed;          /* white seen since the last report */
+    bool     b_in_run;         /* the sensor is in a dark run */
+} line_junction_t;
+
 /** Result of one control tick. */
 typedef struct
 {
     int32_t err;                /* position error, -500 to +500 */
-    int32_t mass;               /* left darkness + centre darkness */
+    int32_t mass;               /* centre darkness + right darkness */
     int32_t steer;              /* steering, -LB_STEER_MAX to +LB_STEER_MAX */
     bool    b_seen;             /* the line is visible */
     bool    b_faded;            /* the line is weak (FADED mode) */
@@ -79,14 +87,36 @@ void line_ctrl_restart(line_ctrl_t * p_ctrl, int32_t last_steer);
  * @brief Run one control tick (every LB_LINE_TICK_MS).
  *
  * @param[in,out] p_ctrl         Controller; must not be NULL.
- * @param[in]     dark_left      Left sensor darkness, 0 to LB_DARK_MAX.
  * @param[in]     dark_centre    Centre sensor darkness, 0 to LB_DARK_MAX.
+ * @param[in]     dark_right     Right sensor darkness, 0 to LB_DARK_MAX.
  * @param[out]    p_out          Result; must not be NULL.
  */
 void line_ctrl_update(line_ctrl_t * p_ctrl,
-                      int32_t dark_left,
                       int32_t dark_centre,
+                      int32_t dark_right,
                       line_ctrl_out_t * p_out);
+
+/*!
+ * @brief Reset the branch detector: it needs white before it can report.
+ *
+ * @param[out] p_jct  Detector state.
+ */
+void line_junction_init(line_junction_t * p_jct);
+
+/*!
+ * @brief One detector step.
+ *
+ * @param[in,out] p_jct       Detector state.
+ * @param[in]     dark_centre Centre sensor darkness, 0 to LB_DARK_MAX.
+ * @param[in]     dark_right  Right sensor darkness, 0 to LB_DARK_MAX.
+ * @param[in]     dist_mm     Distance driven so far.
+ *
+ * @return true once for each branch.
+ */
+bool line_junction_step(line_junction_t * p_jct,
+                        int32_t dark_centre,
+                        int32_t dark_right,
+                        uint32_t dist_mm);
 
 #endif /* LINE_CTRL_H */
 /*** end of file ***/

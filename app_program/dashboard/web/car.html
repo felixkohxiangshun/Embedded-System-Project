@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="CSC11 robo car live dashboard: binary telemetry and debug frames over MQTT.">
+  <title>CSC11 — Car dashboard</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="car.css">
+  <script src="vendor/mqtt.min.js" defer></script>
+  <script src="car.mjs" type="module"></script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="app-identity"><h1>CSC11 <span>/ Car dashboard</span></h1><p>Live telemetry and debug from the robo car</p></div>
+    <div class="session-info"><span id="overall" class="badge"><i></i>Connecting</span><time id="clock"></time></div>
+  </header>
+
+  <main class="car-main">
+    <section class="car-bar">
+      <label>Broker <input id="broker" value="ws://127.0.0.1:9001/mqtt" spellcheck="false"></label>
+      <button id="connect">Reconnect</button>
+      <span id="broker-state">Connecting…</span>
+      <span class="spacer"></span>
+      <span>Telemetry <strong id="telem-rate" class="number">—</strong></span>
+      <span>Debug <strong id="debug-rate" class="number">—</strong></span>
+      <span>Lost frames <strong id="lost" class="number">0</strong></span>
+    </section>
+
+    <div class="car-grid">
+      <section class="card">
+        <h2>Car</h2>
+        <div class="big-state" id="sys-state">—</div>
+        <dl class="kv">
+          <div><dt>Speed</dt><dd id="speed">—</dd></div>
+          <div><dt>Distance</dt><dd id="distance">—</dd></div>
+          <div><dt>Heading</dt><dd id="heading">—</dd></div>
+          <div><dt>Line seen</dt><dd id="line-seen">—</dd></div>
+          <div><dt>Obstacle</dt><dd id="obstacle">—</dd></div>
+          <div><dt>Tallest hump</dt><dd id="hump">—</dd></div>
+          <div><dt>Shock</dt><dd id="shock">—</dd></div>
+          <div><dt>Faults</dt><dd id="faults">—</dd></div>
+        </dl>
+      </section>
+
+      <section class="card">
+        <h2>Barcode</h2>
+        <div class="letters">
+          <div><span>Last read</span><strong id="last-char">—</strong></div>
+          <div><span>Stored for next junction</span><strong id="stored-char">—</strong></div>
+        </div>
+        <dl class="kv">
+          <div><dt>Edges seen</dt><dd id="bc-edges">—</dd></div>
+          <div><dt>Decoded</dt><dd id="bc-ok">—</dd></div>
+          <div><dt>Failed</dt><dd id="bc-fail">—</dd></div>
+        </dl>
+      </section>
+
+      <section class="card">
+        <h2>Line sensors</h2>
+        <div class="bars">
+          <div class="bar"><span>darkC</span><div><i id="bar-c"></i></div><b id="dark-c">—</b></div>
+          <div class="bar"><span>darkR</span><div><i id="bar-r"></i></div><b id="dark-r">—</b></div>
+        </div>
+        <div class="steer-row">
+          <span>Steer</span>
+          <div class="steer-track"><i id="steer-mark"></i></div>
+          <b id="steer">—</b>
+        </div>
+        <dl class="kv">
+          <div><dt>Line error</dt><dd id="err">—</dd></div>
+          <div><dt>Line mode</dt><dd id="mode">—</dd></div>
+          <div><dt>Motor</dt><dd id="motor">—</dd></div>
+          <div><dt>Ultrasonic</dt><dd id="ultra">—</dd></div>
+        </dl>
+      </section>
+
+      <section class="card wide">
+        <h2>Last 15 s <small>darkC · darkR · steer</small></h2>
+        <canvas id="trace" height="180"></canvas>
+      </section>
+
+      <section class="card wide">
+        <h2>Events</h2>
+        <ol id="events" class="events"></ol>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

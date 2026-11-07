@@ -428,6 +428,42 @@ test_filter_calib (void)
 }
 
 static void
+test_line_junction (void)
+{
+    line_junction_t jct;
+
+    line_junction_init(&jct);
+    CHECK("S2-U27a", !line_junction_step(&jct, 1000, 1000, 0)
+                     && !line_junction_step(&jct, 1000, 1000, 50),
+          "both dark from the start, no plain line seen: nothing reported");
+
+    (void)line_junction_step(&jct, 600, 600, 100);
+    CHECK("S2-U27b", !line_junction_step(&jct, 1000, 1000, 100)
+                     && !line_junction_step(&jct, 1000, 1000, 107)
+                     && !line_junction_step(&jct, 600, 600, 108),
+          "both dark for only 7 mm is not a junction");
+
+    CHECK("S2-U27c", !line_junction_step(&jct, 1000, 500, 110)
+                     && !line_junction_step(&jct, 1000, 500, 150)
+                     && !line_junction_step(&jct, 500, 1000, 151)
+                     && !line_junction_step(&jct, 500, 1000, 190),
+          "one sensor dark alone is not a junction, however far");
+
+    (void)line_junction_step(&jct, 1000, 1000, 200);
+    CHECK("S2-U27d", !line_junction_step(&jct, 1000, 1000, 207)
+                     && line_junction_step(&jct, 1000, 1000, 208),
+          "both dark for 8 mm: junction reported");
+
+    CHECK("S2-U27e", !line_junction_step(&jct, 1000, 1000, 300),
+          "the same junction is reported only once");
+
+    (void)line_junction_step(&jct, 600, 600, 301);
+    (void)line_junction_step(&jct, 1000, 1000, 400);
+    CHECK("S2-U27f", line_junction_step(&jct, 1000, 1000, 408),
+          "plain line in between: the next junction is reported");
+}
+
+static void
 test_line_ctrl (void)
 {
     line_ctrl_t     ctrl;
@@ -437,12 +473,12 @@ test_line_ctrl (void)
     line_ctrl_init(&ctrl);
     line_ctrl_update(&ctrl, 1000, 0, &out);
     CHECK("S2-U07a", (out.err < 0) && out.b_seen,
-          "line under the left sensor -> error < 0 (steer left)");
+          "line under the centre sensor -> error < 0 (steer left)");
 
     line_ctrl_init(&ctrl);
     line_ctrl_update(&ctrl, 0, 1000, &out);
     CHECK("S2-U07b", (out.err > 0) && out.b_seen,
-          "line under the centre sensor -> error > 0 (steer right)");
+          "line under the right sensor -> error > 0 (steer right)");
 
     line_ctrl_init(&ctrl);
     line_ctrl_update(&ctrl, 600, 600, &out);
@@ -684,6 +720,7 @@ main (void)
     test_glitch();
     test_filter_calib();
     test_line_ctrl();
+    test_line_junction();
     test_line_recov();
     test_optics();
     test_closed_loop();
