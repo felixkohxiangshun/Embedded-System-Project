@@ -1,4 +1,13 @@
 #include "dashboard.h"
+#include "../line_barcode/line_barcode.h"
+#include "../mission_obstacle/mission_obstacle.h"
+
+/* 1 publishes a debug frame (line sensors, steering, barcode counters,
+   ultrasonic) every DASH_TICK_MS while online.  It is extra to the graded
+   telemetry and goes on its own topic. */
+#ifndef DASH_DEBUG_FRAMES
+#define DASH_DEBUG_FRAMES	1
+#endif
 #if TM_WIFI_CYW43
 #include "cyw43_utk.h"
 #endif
@@ -40,29 +49,57 @@ LOCAL BOOL wifi_is_up(void)
 #endif
 }
 
-LOCAL void send_out(const char *json, INT len)
+LOCAL void send_out(UB kind, const UB *data, INT len)
 {
 	static MQTT_MSG m;
 	INT i;
 
-	m.kind = MQTTM_PUBLISH;
+	m.kind = kind;
 	m.len = (UH)len;
 	for (i = 0; i < len; i++) {
-		m.data[i] = json[i];
+		m.data[i] = (char)data[i];
 	}
 	MBF_SEND(mbf_mqtt_out, m);
 }
+
+#if DASH_DEBUG_FRAMES
+/* Sample the values most useful for debugging on the car.  These are
+   another subsystem's counters, read without a lock: a debug view only. */
+LOCAL void sample_debug(DASH_DEBUG *g)
+{
+	g->dark_c = (INT)g_lb_stats.line_dark_centre;
+	g->dark_r = (INT)g_lb_stats.line_dark_right;
+	g->err = (INT)g_lb_stats.line_err;
+	g->steer = (INT)g_lb_stats.line_steer;
+	g->mode = (UB)g_lb_stats.line_mode;
+	g->bc_edges = g_lb_stats.bc_edges;
+	g->bc_ok = g_lb_stats.bc_decoded;
+	g->bc_fail = g_lb_stats.bc_failed;
+	g->bc_last = (UB)g_lb_stats.bc_last;
+	g->ultra_mm = s5_scan_last_mm;
+	g->motor_state = MOT_STOPPED;
+	if (state_lock(TMO_POL) == E_OK) {
+		g->motor_state = app_state.motor_state;
+		state_unlock();
+	}
+}
+#endif
 
 EXPORT void dashboard_task(INT stacd, void *exinf)
 {
 	static MQTT_MSG in;
 	static char     json[DASH_JSON_MAX];
+	UB              frame[DASH_DEBUG_BYTES];
+	UB              telem_seq = 0;
+#if DASH_DEBUG_FRAMES
+	UB              debug_seq = 0;
+	DASH_DEBUG      g;
+#endif
 	DASH            d;
 	DASH_IN         din;
 	DASH_OUT        dout;
 	MSG_TELEM       t, latest;
 	MSG_MQTTCMD     c;
-	SYSTIM          now;
 	INT             len;
 	UB              cmd;
 #if APP_TEST && TM_WIFI_CYW43 && TM_NET_LWIP
@@ -112,26 +149,36 @@ EXPORT void dashboard_task(INT stacd, void *exinf)
 			state_unlock();
 		}
 
-		if (din.got_telem) {
+		if (din.got_telem && dout.publish_telem) {
+			/* online: the 11-byte binary frame (TEAM.md 7); no stored
+			   character exists yet on this branch */
+			len = dash_pack_telem(&latest, telem_seq++, DASH_CHAR_NONE,
+					      frame, (INT)sizeof(frame));
+			if (len > 0) {
+				s4_frames++;
+				send_out(MQTTM_PUBLISH, frame, len);
+			}
+		} else if (din.got_telem) {
+			/* not online yet: show the frame on the console */
 			len = dash_format_telem(&latest, json, (INT)sizeof(json));
 			if (len > 0) {
 				s4_frames++;
-				if (dout.publish_telem) {
-					send_out(json, len);
-				} else {
-
-					tm_printf((UB*)"[telemetry] %s\n", json);
-					s4_console_lines++;
-				}
+				tm_printf((UB*)"[telemetry] %s\n", json);
+				s4_console_lines++;
 			}
 		}
 		if (dout.publish_heartbeat) {
-			tk_get_otm(&now);
-			len = dash_format_heartbeat(now.lo, latest.sys_state,
-						    json, (INT)sizeof(json));
+			frame[0] = latest.sys_state;
+			send_out(MQTTM_HEARTBEAT, frame, DASH_HB_BYTES);
+		}
+#if DASH_DEBUG_FRAMES
+		if (d.state == DASH_ONLINE || d.state == DASH_HEARTBEAT) {
+			sample_debug(&g);
+			len = dash_pack_debug(&g, debug_seq++, frame, (INT)sizeof(frame));
 			if (len > 0) {
-				send_out(json, len);
+				send_out(MQTTM_DEBUG, frame, len);
 			}
 		}
+#endif
 	}
 }

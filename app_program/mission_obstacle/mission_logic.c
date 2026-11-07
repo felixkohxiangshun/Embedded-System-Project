@@ -10,6 +10,13 @@ LOCAL BOOL is_running(UB s)
 	return (s >= SYS_LINE_FOLLOW && s <= SYS_LINE_REACQUIRE) ? TRUE : FALSE;
 }
 
+/* Junction floor test: 1 drives JUNCTION_CREEP_MM on from a side branch, turns
+   JUNCTION_TURN_DEG with Motor, then stops and returns to IDLE.
+   Replace this when the stored barcode command is carried out here. */
+#ifndef MISSION_JUNCTION_STOP
+#define MISSION_JUNCTION_STOP	1
+#endif
+
 /* States in which the Line task's steering is passed on to the Motor */
 LOCAL BOOL forwards_steer(UB s)
 {
@@ -33,6 +40,8 @@ LOCAL void go(MISSION *m, UB state)
 	m->t_ms = 0;
 	m->wait_stop = 0;
 	m->line_ok = 0;
+	m->creeping = 0;
+	m->stop_after_turn = 0;
 }
 
 EXPORT void mission_act_clear(MISSION_ACT *a)
@@ -131,6 +140,18 @@ EXPORT void mission_on_steer(MISSION *m, const MSG_STEER *s, MISSION_ACT *a)
 	m->ir_line = (s->flags & STEER_F_LOST) ? 0 : 1;
 
 	if (forwards_steer(m->state)) {
+#if MISSION_JUNCTION_STOP
+		if ((s->flags & STEER_F_JUNCTION) && !m->creeping) {
+			m->creeping = 1;
+			m->creep_primed = 0;
+		}
+		if (m->creeping) {
+			/* Straight on: the branch would pull the steering, and
+			   a T has no line ahead, so ignore the line for now. */
+			nav(a, NAV_STEER, 0, 0);
+			return;
+		}
+#endif
 		if (s->flags & STEER_F_TIMEOUT) {
 			fault(m, a, FAULT_LINE);	/* line lost for too long */
 			return;
@@ -147,6 +168,22 @@ EXPORT void mission_on_steer(MISSION *m, const MSG_STEER *s, MISSION_ACT *a)
 		} else {
 			nav(a, NAV_STEER, s->steer, 0);
 		}
+	}
+}
+
+EXPORT void mission_on_distance(MISSION *m, UW dist_mm, MISSION_ACT *a)
+{
+	if (!m->creeping) {
+		return;
+	}
+	if (!m->creep_primed) {
+		m->creep_base_mm = dist_mm;
+		m->creep_primed = 1;
+	} else if ((UW)(dist_mm - m->creep_base_mm) >= (UW)JUNCTION_CREEP_MM) {
+		nav(a, NAV_TURN, JUNCTION_TURN_DEG, 0);
+		go(m, SYS_BARCODE_CMD);
+		m->done_seq_base = SEQ_UNSET;	/* captured on the next tick */
+		m->stop_after_turn = 1;
 	}
 }
 
@@ -279,8 +316,13 @@ EXPORT void mission_on_tick(MISSION *m, INT dt_ms, UB motor_state,
 		if (m->done_seq_base == SEQ_UNSET) {
 			m->done_seq_base = motor_done_seq;	/* remember the counter */
 		} else if (motor_done_seq != m->done_seq_base) {
-			start_driving(a);
-			go(m, SYS_LINE_FOLLOW);
+			if (m->stop_after_turn) {
+				halt(a);
+				go(m, SYS_IDLE);
+			} else {
+				start_driving(a);
+				go(m, SYS_LINE_FOLLOW);
+			}
 		} else if (m->t_ms >= MS_BARCODE_CMD) {
 			fault(m, a, FAULT_LINE);
 		}

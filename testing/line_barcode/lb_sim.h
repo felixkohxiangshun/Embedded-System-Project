@@ -76,7 +76,7 @@ typedef struct
 {
     double speed_mmps;      /* forward speed (Motor: 120 normal, 60 slow) */
     double axle_to_sensor_mm;   /* sensors are this far ahead of the axle */
-    double sensor_gap_mm;   /* distance between left and centre sensor */
+    double sensor_gap_mm;   /* distance between centre and right sensor */
     double spot_mm;         /* width of the sensor spot across the line */
     double line_mm;         /* printed line width (18 mm) */
     double track_mm;        /* distance between the wheels (130 mm) */

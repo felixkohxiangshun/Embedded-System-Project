@@ -15,9 +15,9 @@
  *    polarity switch below makes every sensor look like this).
  *  - "darkness": a normalised value, 0 (bare paper) to 1000 (fresh black).
  *  - "steer": -1000 (hard left) to +1000 (hard right), as in app_if.h.
- *  - "error": line position relative to the point midway between the left
- *    and the centre sensor, -500 (line under the left sensor) to +500 (line
- *    under the centre sensor).  Negative means "steer left".
+ *  - "error": line position relative to the point midway between the centre
+ *    and the right sensor, -500 (line under the centre sensor) to +500 (line
+ *    under the right sensor).  Negative means "steer left".
  *
  * @par
  * Track geometry used by the barcode constants (Barcode & Line
@@ -52,16 +52,15 @@
  * build (LB_TEST_CALIBRATE below) prints the right value. */
 #define LB_IR_DARK_IS_HIGH          1
 
-/* Barcode sensor input mode.  The right sensor (GP28) is wired to the
- * module's DIGITAL output pin (DO) and is read as a plain GPIO level:
- *   - the line sensors (GP26, GP27) stay analogue (AO) and use the ADC;
- *   - the barcode sensor (GP28) is digital (DO) and does not use the ADC.
- * Set the module's trimmer so that DO flips cleanly between a bar and bare
- * paper (check the module's DO LED).  The level is converted to two fixed
+/* Barcode sensor input mode.  Analogue reads the module's AO pin with the ADC,
+ * like the line sensors; set LB_BC_WHITE_NOMINAL and LB_BC_BLACK_NOMINAL below.
+ * Digital reads its DO pin as a plain GPIO level: set the module's trimmer so
+ * that DO flips cleanly between a bar and bare paper (check the module's DO
+ * LED).  The level is converted to two fixed
  * dark-scale counts and goes through the same slicer, so everything after
  * the sampler is identical to the analogue mode.
- * 1 = digital (current hardware), 0 = analogue (wire AO to GP28 instead). */
-#define LB_BC_USE_GPIO_LEVEL        1
+ * 1 = digital (DO on GP28), 0 = analogue (AO on GP28, the current wiring). */
+#define LB_BC_USE_GPIO_LEVEL        0
 
 /* Digital mode: 1 if DO is HIGH over a dark bar, 0 if DO is LOW over a
  * dark bar.  [CAL] Typical TCRT5000 / LM393 modules pull DO LOW over a
@@ -87,10 +86,10 @@
  * ---------------------------------------------------------------------
  * white = sensor centred over bare paper, black = sensor centred over the
  * fresh black line.  The span must be at least LB_CAL_SPAN_MIN counts. */
-#define LB_WHITE_LEFT               400
-#define LB_BLACK_LEFT               3200
-#define LB_WHITE_CENTER             400
-#define LB_BLACK_CENTER             3200
+#define LB_WHITE_CENTER             0
+#define LB_BLACK_CENTER             1720
+#define LB_WHITE_RIGHT              0
+#define LB_BLACK_RIGHT              3218
 #define LB_CAL_SPAN_MIN             800
 
 /* Largest normalised darkness (see ir_calib.h). */
@@ -107,7 +106,7 @@
  * time in line_task.c). */
 #define LB_STEER_MAX                1000
 
-/* Position (-1000 left sensor .. 0 centre sensor) at which the line is
+/* Position (-1000 centre sensor .. 0 right sensor) at which the line is
  * exactly where we want it: midway between the two sensors. */
 #define LB_LINE_TARGET              (-500)
 
@@ -116,18 +115,18 @@
  * starts to wobble, back off 30 percent, then add KD to damp the wobble. */
 #define LB_GAIN_SCALE               256
 #define LB_KP                       400
-#define LB_KD                       500
+#define LB_KD                       300
 
 /* Largest change of the steering output per tick.  Stops the wheels being
  * jerked when the error jumps (dirt, a junction edge, re-acquiring). */
-#define LB_STEER_SLEW_MAX           250
+#define LB_STEER_SLEW_MAX           100
 
 /* The steering output is also kept as a slow average ("steer memory"):
  * mem = mem + (steer - mem) / this.  It is the value that is held while
  * the line is missing, so one noisy tick cannot send the car off. */
 #define LB_STEER_MEM_DIV            4
 
-/* "Line mass" = left darkness + centre darkness.  With the two sensors
+/* "Line mass" = centre darkness + right darkness.  With the two sensors
  * straddling the line it stays near LB_MASS_NOMINAL wherever the line is
  * between them, so it directly measures how strongly the line shows.
  * [CAL] Drive over the plain line and log the mass, then set NOMINAL to the
@@ -178,18 +177,18 @@
 #define LB_COAST_VEER_MS            100
 #define LB_COAST_FADE_MS            400
 
-/* SWEEP: swing toward the side where the line was last seen, on top of the
- * remembered steering, the swing ramping from MIN to MAX over RAMP_MS.  If
+/* SWEEP: swing toward the side where the line was last seen, the swing
+ * ramping from MIN to MAX over RAMP_MS.  If
  * the line is not found within
  * NEAR_MS the sweep reverses for FAR_MS, then keeps alternating, each leg a
  * little stronger (GROW) up to CEIL.  Units: steer, milliseconds. */
-#define LB_SWEEP_NEAR_MS            400
-#define LB_SWEEP_FAR_MS             700
+#define LB_SWEEP_NEAR_MS            600
+#define LB_SWEEP_FAR_MS             1000
 #define LB_SWEEP_RAMP_MS            250
-#define LB_SWEEP_STEER_MIN          350
-#define LB_SWEEP_STEER_MAX          750
+#define LB_SWEEP_STEER_MIN          300
+#define LB_SWEEP_STEER_MAX          500
 #define LB_SWEEP_STEER_GROW         100
-#define LB_SWEEP_STEER_CEIL         950
+#define LB_SWEEP_STEER_CEIL         800
 
 /* If the last error was smaller than this the side of the line is unknown
  * from the error, so the sign of the held steering decides.  If that is
@@ -222,8 +221,15 @@
 #define LB_JUNCTION_DARK_MIN        850
 #define LB_JUNCTION_TICKS           3u
 
+/* Junction detector (line_junction_step in line_ctrl.c).  Both line sensors
+ * must first stop being dark together, then both read at least DARK_MIN for
+ * RUN_MM of travel.  A cross or T is found; a branch on one side only is
+ * not.  [CAL] */
+#define LB_BRANCH_DARK_MIN          800
+#define LB_BRANCH_RUN_MM            8
+
 /* ------------------------------------------------------------------------
- * 6. Barcode slicer: turns the right sensor into bar/space edges
+ * 6. Barcode slicer: turns the barcode sensor into bar/space edges
  *    (bc_slicer.c)
  * ---------------------------------------------------------------------
  * The slicer follows the signal's own peaks and valleys instead of a fixed
@@ -332,7 +338,7 @@
 /* Seconds of live trace printed after the tests (0 = none).  One line every
  * 100 ms with the raw readings, line error, steering, mode and barcode
  * state.  Press the start button and drive the car meanwhile. */
-#define LB_TEST_TRACE_SECONDS       0
+#define LB_TEST_TRACE_SECONDS       600
 
 /* ------------------------------------------------------------------------
  * Compile-time checks of the relations the algorithms rely on.

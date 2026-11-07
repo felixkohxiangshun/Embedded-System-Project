@@ -60,6 +60,8 @@ Define a test here before running it. Test IDs never change.
 | S2-M07 | line missing for good (end of line): the car reports the loss | FR-01 | manual | Lift the car off or let it run past the end of the line. | Mission enters FAULT_RECOVERY about 3 s after the line is gone |
 | S2-M08 | barcode passes at slow (60 mm/s) and normal (120 mm/s) speed, all four codes, 5 each | FR-02, NFR-05 | manual | Print `gen_patterns.py sheet`, lay beside the line. | ≥ 38 of 40 correct, 0 wrong turns |
 | S2-M09 | a code crossed from the wrong side (reversed) is not obeyed | FR-02, NFR-05 | manual | Drive over the code backwards. | `bc_failed` rises; no turn is made |
+| S2-U27 | junction detector: needs plain line first, ignores 7 mm of both dark, ignores one sensor dark alone, reports 8 mm of both dark once, re-arms on plain line | junction | host | `lb_host_tests.c` | `[TEST] S2-U27a..f PASS` |
+| S2-M10 | car drives on to a junction, using the two line sensors, turns left 90 and stops | junction | manual | Press GP20 with the line between the sensors and run towards a junction, `MISSION_JUNCTION_STOP` 1, 5 runs at a cross or T. | axle on each junction, turns left 90 about the junction and stops, never on plain line, state `IDLE` |
 
 *Method:* **auto** = `TEST_CHECK` in code, result printed on the console
 (`make TEST=1`); **host** = the same check also runs on a PC (`testing/host`);

@@ -5,7 +5,7 @@
  *
  * @par
  * One tick (design review statechart 6.1: SAMPLING, STEERING, LINE_LOST):
- *  1. read the filtered left and centre sensors and normalise them with the
+ *  1. read the filtered centre and right sensors and normalise them with the
  *     calibration (ir_calib),
  *  2. line_ctrl turns them into a position error and a PD steering,
  *  3. line_recov watches for a faded, lost or veered-off line and replaces

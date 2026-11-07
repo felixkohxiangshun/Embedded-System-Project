@@ -27,6 +27,12 @@ EXPORT volatile INT s5_scan_last_mm;
 #define DETECT_CONFIRM		2	/* consecutive close readings */
 #define PROFILE_WAIT_MS		10000
 
+/* Line tracking floor test: 0 ignores SCANCMD_ARM, so the car never stops for
+   an obstacle.  Restore 1 after the test. */
+#ifndef S5_OBSTACLE_DETECT
+#define S5_OBSTACLE_DETECT	0
+#endif
+
 LOCAL void post(UB kind, const SCAN_RESULT *r, INT dist)
 {
 	MSG_OBS m;
@@ -95,7 +101,7 @@ EXPORT void scan_task(INT stacd, void *exinf)
 		r = MBF_RECV(mbf_scancmd, c, SCAN_PING_MS);
 		if (r > 0) {
 			if (c.cmd == SCANCMD_ARM) {
-				armed = TRUE;
+				armed = S5_OBSTACLE_DETECT ? TRUE : FALSE;
 				close_cnt = 0;
 			} else if (c.cmd == SCANCMD_DISARM) {
 				armed = FALSE;

@@ -26,6 +26,7 @@
 #define STEER_MAX		1000	/* steer is -1000 (hard left) .. +1000 */
 #define STEER_F_LOST		0x01	/* both sensors are off the line */
 #define STEER_F_TIMEOUT		0x02	/* line lost longer than the timeout */
+#define STEER_F_JUNCTION	0x04	/* side branch found, sent once per branch */
 typedef struct {
 	INT	steer;			/* -1000..+1000, positive = steer right */
 	UB	flags;			/* STEER_F_xxx */
