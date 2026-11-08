@@ -122,7 +122,7 @@ uint32_t bc_stream_silence_ms(bc_stream_t const * p_stream);
  * keep collecting if the result is not BC_DECODE_OK.
  *
  * @param[in]  p_stream      Capture; must not be NULL.
- * @param[out] p_command     'A' to 'D' on success; the character read on
+ * @param[out] p_command     'A' to 'Z' on success; the character read on
  *                           BC_DECODE_ERR_COMMAND.
  * @param[out] p_b_reversed  true if the code was read backwards.
  *

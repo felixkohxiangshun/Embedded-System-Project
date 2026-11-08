@@ -10,12 +10,6 @@ LOCAL BOOL is_running(UB s)
 	return (s >= SYS_LINE_FOLLOW && s <= SYS_LINE_REACQUIRE) ? TRUE : FALSE;
 }
 
-/* Junction floor test: 1 drives JUNCTION_CREEP_MM on from a side branch, turns
-   JUNCTION_TURN_DEG with Motor, then stops and returns to IDLE.
-   Replace this when the stored barcode command is carried out here. */
-#ifndef MISSION_JUNCTION_STOP
-#define MISSION_JUNCTION_STOP	1
-#endif
 
 /* States in which the Line task's steering is passed on to the Motor */
 LOCAL BOOL forwards_steer(UB s)
@@ -41,7 +35,6 @@ LOCAL void go(MISSION *m, UB state)
 	m->wait_stop = 0;
 	m->line_ok = 0;
 	m->creeping = 0;
-	m->stop_after_turn = 0;
 }
 
 EXPORT void mission_act_clear(MISSION_ACT *a)
@@ -56,6 +49,7 @@ EXPORT void mission_init(MISSION *m)
 	m->done_seq_base = 0;
 	m->recoveries = 0;
 	m->last_barcode = 0;
+	m->stored_char = 0;
 	m->hump_mm = 0;
 	m->hump_max_mm = 0;
 	m->shock = 0;
@@ -67,21 +61,29 @@ EXPORT void mission_init(MISSION *m)
 	m->net_online = 0;
 	m->bypass_ms = 0;
 	m->bypass_late = 0;
+	m->stop_at_barcode = 0;
+	m->move_map[JMOVE_FORWARD] = 0;
+	m->move_map[JMOVE_UTURN] = JMAP_DEFAULT_UTURN;
+	m->move_map[JMOVE_LEFT] = 0;
+	m->move_map[JMOVE_RIGHT] = 0;
 	go(m, SYS_INIT);
 }
 
-EXPORT INT mission_barcode_turn(UB ch, BOOL *valid)
+EXPORT INT mission_junction_deg(const MISSION *m, UB ch)
 {
-	*valid = TRUE;
-	switch (ch) {
-	case 'A': return -90;		/* turn left 90 */
-	case 'B': return +90;		/* turn right 90 */
-	case 'C': return 0;		/* go straight */
-	case 'D': return 180;		/* u-turn */
-	default:
-		*valid = FALSE;
-		return 0;
+	if (ch == 0) {
+		return 0;			/* nothing stored: forward */
 	}
+	if (ch == m->move_map[JMOVE_UTURN]) {
+		return 180;
+	}
+	if (ch == m->move_map[JMOVE_LEFT]) {
+		return -90;
+	}
+	if (ch == m->move_map[JMOVE_RIGHT]) {
+		return 90;
+	}
+	return 0;				/* forward, or not mapped */
 }
 
 /* Halt everything and stop pinging; used by IDLE, E_STOP, FAULT_RECOVERY */
@@ -140,7 +142,6 @@ EXPORT void mission_on_steer(MISSION *m, const MSG_STEER *s, MISSION_ACT *a)
 	m->ir_line = (s->flags & STEER_F_LOST) ? 0 : 1;
 
 	if (forwards_steer(m->state)) {
-#if MISSION_JUNCTION_STOP
 		if ((s->flags & STEER_F_JUNCTION) && !m->creeping) {
 			m->creeping = 1;
 			m->creep_primed = 0;
@@ -151,7 +152,6 @@ EXPORT void mission_on_steer(MISSION *m, const MSG_STEER *s, MISSION_ACT *a)
 			nav(a, NAV_STEER, 0, 0);
 			return;
 		}
-#endif
 		if (s->flags & STEER_F_TIMEOUT) {
 			fault(m, a, FAULT_LINE);	/* line lost for too long */
 			return;
@@ -180,20 +180,36 @@ EXPORT void mission_on_distance(MISSION *m, UW dist_mm, MISSION_ACT *a)
 		m->creep_base_mm = dist_mm;
 		m->creep_primed = 1;
 	} else if ((UW)(dist_mm - m->creep_base_mm) >= (UW)JUNCTION_CREEP_MM) {
-		nav(a, NAV_TURN, JUNCTION_TURN_DEG, 0);
-		go(m, SYS_BARCODE_CMD);
-		m->done_seq_base = SEQ_UNSET;	/* captured on the next tick */
-		m->stop_after_turn = 1;
+		/* The axle is on the junction: carry out the stored letter's move
+		   and forget the letter (TEAM.md 7, steps 4 and 5). */
+		INT deg = mission_junction_deg(m, m->stored_char);
+
+		m->stored_char = 0;
+		if (deg != 0) {
+			nav(a, NAV_TURN, deg, 0);
+			go(m, SYS_BARCODE_CMD);
+			m->done_seq_base = SEQ_UNSET;	/* captured on the next tick */
+		} else {
+			m->creeping = 0;	/* forward: follow the line again */
+		}
 	}
 }
 
 EXPORT void mission_on_barcode(MISSION *m, const MSG_BCCMD *b, MISSION_ACT *a)
 {
-	BOOL valid;
-	INT  deg;
-
+	/* Every letter read is recorded and kept for the next cross junction,
+	   whatever the state: a code swiped by hand while IDLE counts too. */
+	if (b->kind == BC_OK && b->cmd >= 'A' && b->cmd <= 'Z') {
+		m->last_barcode = b->cmd;
+		m->stored_char = b->cmd;
+	}
 	if (m->state != SYS_LINE_FOLLOW && m->state != SYS_BARCODE_SCAN) {
-		return;				/* ignored during hump, obstacle, ... */
+		return;				/* no action during hump, obstacle, ... */
+	}
+	if (m->stop_at_barcode && (b->kind == BC_OK || b->kind == BC_FAIL)) {
+		halt(a);			/* barcode read (or failed): stop here */
+		go(m, SYS_IDLE);
+		return;
 	}
 	switch (b->kind) {
 	case BC_SEEN:
@@ -202,19 +218,8 @@ EXPORT void mission_on_barcode(MISSION *m, const MSG_BCCMD *b, MISSION_ACT *a)
 		}
 		break;
 	case BC_OK:
-		deg = mission_barcode_turn(b->cmd, &valid);
-		if (!valid) {
-			go(m, SYS_LINE_FOLLOW);
-			break;
-		}
-		m->last_barcode = b->cmd;
-		if (deg == 0) {
-			go(m, SYS_LINE_FOLLOW);	/* 'C': go straight, nothing to do */
-		} else {
-			nav(a, NAV_TURN, deg, 0);
-			go(m, SYS_BARCODE_CMD);
-			m->done_seq_base = SEQ_UNSET;	/* captured on the next tick */
-		}
+		/* Stored above; the move waits for the next cross junction. */
+		go(m, SYS_LINE_FOLLOW);
 		break;
 	case BC_FAIL:
 	default:
@@ -316,13 +321,8 @@ EXPORT void mission_on_tick(MISSION *m, INT dt_ms, UB motor_state,
 		if (m->done_seq_base == SEQ_UNSET) {
 			m->done_seq_base = motor_done_seq;	/* remember the counter */
 		} else if (motor_done_seq != m->done_seq_base) {
-			if (m->stop_after_turn) {
-				halt(a);
-				go(m, SYS_IDLE);
-			} else {
-				start_driving(a);
-				go(m, SYS_LINE_FOLLOW);
-			}
+			start_driving(a);
+			go(m, SYS_LINE_FOLLOW);
 		} else if (m->t_ms >= MS_BARCODE_CMD) {
 			fault(m, a, FAULT_LINE);
 		}

@@ -1,4 +1,4 @@
-import { TOPICS, decodeTelemetry, decodeDebug, decodeHeartbeat, seqGap } from './car_model.mjs';
+import { TOPICS, decodeTelemetry, decodeDebug, decodeHeartbeat, decodeBcTrace, seqGap } from './car_model.mjs';
 
 const $ = id => document.getElementById(id);
 const STALE_MS = 2000;
@@ -59,6 +59,13 @@ function showTelemetry(t) {
   previous.stored = t.storedChar;
 }
 
+// Widths of the last capture, bars and spaces on separate rows (ms)
+function showBcTrace(t) {
+  const bars = t.widthsMs.filter((_, i) => i % 2 === 0).map(w => w.toFixed(1));
+  const spaces = t.widthsMs.filter((_, i) => i % 2 === 1).map(w => w.toFixed(1));
+  $('bc-trace').textContent = `${t.count} edges, ${t.result}\nbars   ${bars.join(' ')}\nspaces ${spaces.join(' ')}`;
+}
+
 function showDebug(g) {
   const now = performance.now();
   lost += seqGap(lastDebugSeq, g.seq);
@@ -78,8 +85,10 @@ function showDebug(g) {
   $('bc-edges').textContent = g.bcEdges;
   $('bc-ok').textContent = g.bcOk;
   $('bc-fail').textContent = g.bcFail;
+  $('bc-result').textContent = g.bcResult;
+  $('bc-count').textContent = `${g.bcCount} / 30`;
   if (previous.bcOk !== null && g.bcOk !== previous.bcOk) event(`barcode read: ${g.bcLast ?? '?'}`);
-  if (previous.bcFail !== null && g.bcFail !== previous.bcFail) event('barcode failed');
+  if (previous.bcFail !== null && g.bcFail !== previous.bcFail) event(`barcode failed: ${g.bcResult}, ${g.bcCount} edges`);
   previous.bcOk = g.bcOk;
   previous.bcFail = g.bcFail;
   trace.push({ t: now, c: g.darkC, r: g.darkR, s: g.steer });
@@ -140,7 +149,7 @@ function connect() {
   });
   client.on('connect', () => {
     $('broker-state').textContent = 'Broker connected';
-    client.subscribe([TOPICS.telemetry, TOPICS.debug, TOPICS.heartbeat], { qos: 0 });
+    client.subscribe([TOPICS.telemetry, TOPICS.debug, TOPICS.heartbeat, TOPICS.barcode], { qos: 0 });
     event('broker connected');
   });
   client.on('close', () => { $('broker-state').textContent = 'Broker disconnected, retrying…'; });
@@ -150,6 +159,7 @@ function connect() {
     try {
       if (topic === TOPICS.telemetry) showTelemetry(decodeTelemetry(bytes));
       else if (topic === TOPICS.debug) showDebug(decodeDebug(bytes));
+      else if (topic === TOPICS.barcode) showBcTrace(decodeBcTrace(bytes));
       else if (topic === TOPICS.heartbeat) {
         const hb = decodeHeartbeat(bytes);
         lastTelemAt = performance.now();

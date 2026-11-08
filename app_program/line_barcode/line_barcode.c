@@ -24,6 +24,7 @@ ID g_lb_cyc_ir;
 ID g_lb_cyc_line;
 
 lb_stats_t g_lb_stats;
+lb_bc_trace_t g_lb_bc_trace;
 
 /* Private function prototypes. */
 static ID make_cyclic(FP handler, RELTIM period_ms);

@@ -29,7 +29,6 @@ EXPORT void mission_obstacle_test(void)
 	MSG_STEER   s = {0};
 	MSG_MQTTCMD q;
 	SCAN_RESULT r;
-	BOOL        valid;
 	INT         i;
 
 	TEST_INIT();
@@ -62,21 +61,12 @@ EXPORT void mission_obstacle_test(void)
 	b = bc(BC_SEEN, 0); mission_on_barcode(&m, &b, &a);
 	TEST_CHECK("S5-U02b", m.state == SYS_BARCODE_SCAN, "barcode seen -> BARCODE_SCAN");
 
-	/* S5-U03: barcode command A..D (FR-03) */
-	TEST_CHECK("S5-U03", mission_barcode_turn('A', &valid) == -90 && valid &&
-		   mission_barcode_turn('B', &valid) == 90 &&
-		   mission_barcode_turn('C', &valid) == 0 && valid &&
-		   mission_barcode_turn('D', &valid) == 180 &&
-		   (mission_barcode_turn('Z', &valid), !valid), "A=left 90, B=right 90, C=straight, D=u-turn");
+	/* S5-U03: a decoded letter is stored; the move waits for a junction */
 	mission_act_clear(&a);
-	b = bc(BC_OK, 'B'); mission_on_barcode(&m, &b, &a);
-	TEST_CHECK("S5-U03b", m.state == SYS_BARCODE_CMD && a.n_nav == 1 &&
-		   a.nav[0].type == NAV_TURN && a.nav[0].arg == 90, "decoded B -> BARCODE_CMD, turn right 90 sent");
-	mission_act_clear(&a);
-	mission_on_tick(&m, 5, MOT_TURNING, 4, &a);		/* captures the counter */
-	mission_on_tick(&m, 5, MOT_STOPPED, 5, &a);		/* counter moved: turn done */
-	TEST_CHECK("S5-U03c", m.state == SYS_LINE_FOLLOW && (a.evt_flags & EVT_RESUME),
-		   "turn finished -> back to LINE_FOLLOW");
+	b = bc(BC_OK, 'F'); mission_on_barcode(&m, &b, &a);
+	TEST_CHECK("S5-U03", m.state == SYS_LINE_FOLLOW && a.n_nav == 0 && m.stored_char == 'F' &&
+		   mission_junction_deg(&m, 'F') == 180 && mission_junction_deg(&m, 'A') == 0,
+		   "decoded F -> stored, no turn now; F = U-turn at the junction, A unmapped");
 
 	/* S5-U04: a failed decode returns to LINE_FOLLOW with no turn */
 	mission_act_clear(&a);

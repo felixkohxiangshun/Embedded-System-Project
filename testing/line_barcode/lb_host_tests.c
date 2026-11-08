@@ -25,6 +25,7 @@
 #include "bc_decode.h"
 #include "bc_stream.h"
 #include "bc_slicer.h"
+#include "bc_level.h"
 #include "ir_calib.h"
 #include "ir_filter.h"
 #include "line_ctrl.h"
@@ -156,27 +157,41 @@ test_decoder (void)
     CHECK("S2-U06b", BC_DECODE_OK != bc_decode_edges(edge, NUM_EDGES, &cmd,
                                                      &rev),
           "a squashed element is rejected");
-    CHECK("S2-U06c", BC_DECODE_OK != decode_symbol('Q', 50000.0, &cmd, &rev),
-          "a valid but wrong frame/char (Q) does not give a command");
+    CHECK("S2-U06c", BC_DECODE_ERR_COMMAND == decode_symbol('*', 50000.0, &cmd, &rev),
+          "a valid frame with '*' in the middle does not give a command");
     make_edges('A', 50000.0, 1000u, edge);
     edge[10] += 120000u;            /* inter-character gap far too long */
     CHECK("S2-U06d", BC_DECODE_OK != bc_decode_edges(edge, NUM_EDGES, &cmd,
                                                      &rev),
           "a wrong inter-character gap is rejected");
 
-    /* Valid Code 39 characters that are not commands are ignored. */
+    /* Every letter A to Z decodes, in both directions (the demo's
+     * mapping can use any four letters). */
     b_all = true;
-    for (idx = 0u; idx < 5u; idx++)
+    for (ch = 'A'; ch <= 'Z'; ch++)
     {
-        static char const other[5] = {'F', 'W', 'X', 'Y', 'Z'};
-
-        ch = other[idx];
         b_all = b_all
-                && (BC_DECODE_ERR_COMMAND
-                    == decode_symbol(ch, 50000.0, &cmd, &rev))
-                && ((uint8_t)ch == cmd);
+                && (BC_DECODE_OK == decode_symbol(ch, 50000.0, &cmd, &rev))
+                && ((uint8_t)ch == cmd) && (!rev);
     }
-    CHECK("S2-U13", b_all, "F, W, X, Y, Z are read but not accepted");
+    CHECK("S2-U30", b_all, "every letter A to Z decodes");
+
+    b_all = true;
+    for (ch = 'A'; ch <= 'Z'; ch++)
+    {
+        uint32_t back[NUM_EDGES];
+
+        make_edges(ch, 50000.0, 1000u, edge);
+        for (idx = 0u; idx < NUM_EDGES; idx++)
+        {
+            /* Read from the other end: last edge first, times mirrored. */
+            back[idx] = 3000000u - edge[NUM_EDGES - 1u - idx];
+        }
+        b_all = b_all
+                && (BC_DECODE_OK == bc_decode_edges(back, NUM_EDGES, &cmd, &rev))
+                && ((uint8_t)ch == cmd) && rev;
+    }
+    CHECK("S2-U31", b_all, "every letter A to Z decodes when read backwards");
 
     /* Timer wrap in the middle of a code. */
     make_edges('B', 50000.0, 0xFFFFFFFFu - 400000u, edge);
@@ -293,6 +308,96 @@ test_stream (void)
     (void)bc_stream_push(&stream, 100u, false);
     CHECK("S2-U16d", !bc_stream_is_active(&stream),
           "a light edge does not start a capture");
+
+    /* A complete capture with one narrow space squeezed to 0.3 x (the DO
+     * threshold widens the bars): the glitch filter would delete it. */
+    make_edges('K', 40000.0, 5000u, edge);
+    edge[4] = edge[3] + 12000u;     /* 2nd narrow space of the "*" */
+    bc_stream_reset(&stream);
+    for (idx = 0u; idx < NUM_EDGES; idx++)
+    {
+        (void)bc_stream_push(&stream, edge[idx], 0u == (idx % 2u));
+    }
+    {
+        /* Widths from a real hand swipe (2026-11-07, ms): narrow bars read
+         * far too thin, which the old narrow-bar speed check rejected. */
+        static double const b[15] = { 0.4, 1.8, 16.8, 18.4, 3.3, 2.9, 22.6,
+                                      18.8, 6.9, 7.8, 5.8, 5.7, 19.1, 19.6,
+                                      1.8 };
+        static double const s[14] = { 20.7, 8.1, 6.7, 7.6, 8.5, 7.5, 5.3,
+                                      18.8, 5.0, 5.6, 21.3, 5.6, 4.9, 6.9 };
+        uint32_t real[NUM_EDGES];
+        double   now = 1000.0;
+
+        real[0] = 1000u;
+        for (idx = 0u; idx < 29u; idx++)
+        {
+            now += 1000.0 * ((0u == (idx % 2u)) ? b[idx / 2u] : s[idx / 2u]);
+            real[idx + 1u] = (uint32_t)now;
+        }
+        CHECK("S2-U32", BC_DECODE_OK == bc_decode_edges(real, NUM_EDGES,
+                                                        &cmd, &rev),
+              "real swipe with thin narrow bars decodes (speed by char time)");
+    }
+    CHECK("S2-U16e", (BC_DECODE_OK == bc_stream_decode(&stream, &cmd, &rev))
+                     && ('K' == cmd),
+          "a 30-edge capture is decoded before glitches are merged");
+}
+
+/* DO debouncer (digital mode): edges from the GPIO interrupt. */
+static void
+test_level (void)
+{
+    bc_level_t       lv;
+    bc_slicer_edge_t e;
+    uint32_t         n_edges = 0u;
+    uint32_t         t_dark  = 0u;
+    uint32_t         t_light = 0u;
+    bool             b_ok    = true;
+
+    /* A clean 1.3 ms bar (the narrowest seen at driving speed). */
+    bc_level_init(&lv, false, 0u);
+    b_ok &= !bc_level_change(&lv, 10000u, true, &e);
+    if (bc_level_change(&lv, 11300u, false, &e)) { n_edges++; t_dark = e.time_us; b_ok &= e.b_dark; }
+    if (bc_level_poll(&lv, 11400u, &e)) { b_ok = false; }      /* too soon */
+    if (bc_level_poll(&lv, 11600u, &e)) { n_edges++; t_light = e.time_us; b_ok &= !e.b_dark; }
+    CHECK("S2-U33a", b_ok && (2u == n_edges) && (10000u == t_dark)
+                     && (11300u == t_light),
+          "DO: a 1.3 ms bar gives two edges at the exact interrupt times");
+
+    /* Chatter: three extra toggles within 60 us at each edge. */
+    bc_level_init(&lv, false, 0u);
+    n_edges = 0u;
+    {
+        static uint32_t const t[8] = { 20000u, 20020u, 20040u, 20060u,
+                                       23000u, 23015u, 23030u, 23045u };
+        static bool const d[8] = { true, false, true, true,
+                                   false, true, false, false };
+        uint32_t k = 0u;
+
+        for (k = 0u; k < 8u; k++)
+        {
+            if (bc_level_change(&lv, t[k], d[k], &e)) { n_edges++; t_dark = e.time_us; }
+        }
+        if (bc_level_poll(&lv, 24000u, &e)) { n_edges++; t_light = e.time_us; }
+    }
+    CHECK("S2-U33b", (2u == n_edges) && (20040u == t_dark)
+                     && (23030u == t_light),
+          "DO: chatter at both edges of a bar is reduced to two edges");
+
+    /* A 100 us speck on white paper is ignored. */
+    bc_level_init(&lv, false, 0u);
+    b_ok = !bc_level_change(&lv, 5000u, true, &e)
+           && !bc_level_change(&lv, 5100u, false, &e)
+           && !bc_level_poll(&lv, 9000u, &e);
+    CHECK("S2-U33c", b_ok, "DO: a 100 us speck is not an edge");
+
+    /* Timer wrap between the two edges. */
+    bc_level_init(&lv, false, 0u);
+    (void)bc_level_change(&lv, 0xFFFFFF00u, true, &e);
+    b_ok = bc_level_change(&lv, 0x00000800u, false, &e) && e.b_dark
+           && (0xFFFFFF00u == e.time_us);
+    CHECK("S2-U33d", b_ok, "DO: timer wrap inside a bar is harmless");
 }
 
 static void
@@ -717,6 +822,7 @@ main (void)
     test_decoder();
     test_decoder_noise();
     test_stream();
+    test_level();
     test_glitch();
     test_filter_calib();
     test_line_ctrl();

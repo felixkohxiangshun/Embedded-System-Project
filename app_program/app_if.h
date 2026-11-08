@@ -111,7 +111,7 @@ typedef struct {
 	INT	heading_deg;		/* dead-reckoned from the encoders, + right */
 	UB	ir_line;		/* 1 = line seen */
 	INT	obs_dist_mm;
-	UB	last_barcode;		/* 'A'..'D' or 0 */
+	UB	last_barcode;		/* 'A'..'Z' or 0 */
 	INT	hump_max_mm;
 	UB	shock;
 	UB	fault_flags;		/* FAULT_xxx */
@@ -175,7 +175,8 @@ typedef struct {
 typedef struct {
 	/* written by Mission */
 	UB	sys_state;		/* SYS_xxx */
-	UB	last_barcode;
+	UB	last_barcode;		/* last letter read, 'A'..'Z' or 0 */
+	UB	stored_char;		/* letter kept for the next junction, or 0 */
 	INT	hump_mm;
 	INT	hump_max_mm;
 	UB	shock;

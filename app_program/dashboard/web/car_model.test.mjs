@@ -40,15 +40,17 @@ test('telemetry: negative speed and wrong length', () => {
   assert.throws(() => decodeTelemetry(new Uint8Array(10)));
 });
 
-test('debug: signed fields and counters round-trip, 12 bytes', () => {
+test('debug: signed fields and counters round-trip, 14 bytes', () => {
   const frame = pack([[200, 255], [600, 1023], [480, 1023], [-120 + 512, 1023], [-700 + 1024, 2047],
-    [2, 3], [60, 255], [1, 255], [3, 255], [1, 31], [289, 4095], [1, 7]], 12);
+    [2, 3], [60, 255], [1, 255], [3, 255], [1, 31], [289, 4095], [1, 7], [6, 15], [30, 63]], 14);
   const g = decodeDebug(frame);
   assert.deepEqual([g.darkC, g.darkR, g.err, g.steer], [600, 480, -120, -700]);
   assert.equal(g.modeName, 'SWEEP');
   assert.deepEqual([g.bcEdges, g.bcOk, g.bcFail, g.bcLast], [60, 1, 3, 'B']);
   assert.equal(g.ultraMm, 289);
   assert.equal(g.motorName, 'DRIVING');
+  assert.equal(g.bcResult, 'SPEED (speed changed)');
+  assert.equal(g.bcCount, 30);
 });
 
 test('heartbeat and sequence gaps', () => {
@@ -56,4 +58,13 @@ test('heartbeat and sequence gaps', () => {
   assert.equal(seqGap(null, 5), 0);
   assert.equal(seqGap(254, 1), 2);
   assert.equal(seqGap(9, 10), 0);
+});
+
+test('barcode trace: widths in 0.1 ms, bar first', async () => {
+  const { decodeBcTrace } = await import('./car_model.mjs');
+  const t = decodeBcTrace(Uint8Array.from([5, 2, 3, 0x7b, 0x00, 0x10, 0x27]));
+  assert.equal(t.seq, 5);
+  assert.equal(t.result, 'COUNT (not 30 edges)');
+  assert.deepEqual(t.widthsMs, [12.3, 1000]);
+  assert.throws(() => decodeBcTrace(Uint8Array.from([5, 2, 3, 1])));
 });

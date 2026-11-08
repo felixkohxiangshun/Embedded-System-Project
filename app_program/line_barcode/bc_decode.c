@@ -42,6 +42,7 @@ typedef struct
     uint32_t wide_mask;         /* bit n set: element n (0 to 8) is wide */
     uint32_t narrow_bar_us;     /* average width of its narrow bars */
     uint32_t narrow_space_us;   /* average width of its narrow spaces */
+    uint32_t total_us;          /* time to read all nine elements */
 } char_info_t;
 
 /* One entry of the pattern table. */
@@ -53,10 +54,10 @@ typedef struct
 
 /* Wide elements of every character the decoder knows, element 0 = first
  * bar.  The mask is checked against the Code 39 table of the reportlab
- * library (see testing/line_barcode/gen_patterns.py).  Only '*' and A to D
- * are navigation symbols; the other letters are known so that a wrong
- * barcode is reported as "valid Code 39 but not a command" instead of as
- * noise.  Every letter has exactly two wide bars and one wide space. */
+ * library (see testing/line_barcode/gen_patterns.py).  '*' frames the code
+ * and every letter A to Z is a valid command: which movement each letter
+ * means is sent to the car over MQTT (TEAM.md section 7).  Every letter
+ * has exactly two wide bars and one wide space. */
 static pattern_t const g_pattern[] =
 {
     { 0x052u, '*' },   /* N W N N W N W N N */
@@ -396,6 +397,7 @@ classify_character (uint32_t const * p_width, char_info_t * p_info)
                                   / NARROW_BARS_PER_CHAR;
         p_info->narrow_space_us = (space_sum - space[0])
                                   / NARROW_SPACES_PER_CHAR;
+        p_info->total_us        = bar_sum + space_sum;
     }
     else
     {
@@ -465,30 +467,34 @@ gap_is_valid (uint32_t gap_us, uint32_t space_a, uint32_t space_b)
 /*!
  * @brief Were the three characters read at a similar speed?
  *
- * The narrow bar of the character read slowest must not be more than
- * LB_BC_SPEED_RATIO_X10 / 10 times that of the one read fastest.
+ * The character read slowest must not take more than
+ * LB_BC_SPEED_RATIO_X10 / 10 times as long as the one read fastest.  Every
+ * character is printed the same width, so its total time follows the speed
+ * only.  (Comparing narrow bars failed on the car: the digital sensor makes
+ * a narrow bar look 0.1 to 1 x its real width, which looked like a speed
+ * change.)
  */
 static bool
 speed_is_consistent (char_info_t const * p_info)
 {
-    uint32_t fastest = p_info[0].narrow_bar_us;
-    uint32_t slowest = p_info[0].narrow_bar_us;
+    uint32_t fastest = p_info[0].total_us;
+    uint32_t slowest = p_info[0].total_us;
     uint32_t idx     = 0u;
 
     for (idx = 1u; idx < NUM_CHARS; idx++)
     {
-        if (p_info[idx].narrow_bar_us < fastest)
+        if (p_info[idx].total_us < fastest)
         {
-            fastest = p_info[idx].narrow_bar_us;
+            fastest = p_info[idx].total_us;
         }
         else
         {
             /* Not the smallest so far. */
         }
 
-        if (p_info[idx].narrow_bar_us > slowest)
+        if (p_info[idx].total_us > slowest)
         {
-            slowest = p_info[idx].narrow_bar_us;
+            slowest = p_info[idx].total_us;
         }
         else
         {
@@ -507,13 +513,13 @@ speed_is_consistent (char_info_t const * p_info)
  *
  * Checks, in this order: every character is clear (WIDTH), the first and the
  * last character are '*' (FRAME), the gaps are right (GAP), the speed is
- * steady (SPEED), the middle character is one of A to D (COMMAND).
+ * steady (SPEED), the middle character is a letter A to Z (COMMAND).
  */
 static bc_decode_status_t
 decode_elements (uint32_t const * p_width, uint8_t * p_command)
 {
     bc_decode_status_t status = BC_DECODE_OK;
-    char_info_t        info[NUM_CHARS]   = { { 0u, 0u, 0u } };
+    char_info_t        info[NUM_CHARS]   = { { 0u, 0u, 0u, 0u } };
     uint8_t            symbol[NUM_CHARS] = { 0u };
     uint32_t           idx               = 0u;
 
@@ -548,10 +554,11 @@ decode_elements (uint32_t const * p_width, uint8_t * p_command)
         {
             status = BC_DECODE_ERR_SPEED;
         }
-        else if ((symbol[1] < 'A') || (symbol[1] > 'D'))
+        else if ((symbol[1] < 'A') || (symbol[1] > 'Z'))
         {
-            /* A well formed code, but not one of ours.  Report which
-             * character it was (0 if it is not in the table). */
+            /* A well formed code, but not a letter ('*' in the middle).
+             * Report which character it was (0 if it is not in the
+             * table). */
             *p_command = symbol[1];
             status     = BC_DECODE_ERR_COMMAND;
         }

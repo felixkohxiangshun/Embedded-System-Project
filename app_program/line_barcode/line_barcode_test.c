@@ -182,12 +182,13 @@ line_barcode_test (void)
     TEST_CHECK("INT-01b", g_lb_stats.edges_dropped == start_drops,
                "no edge was lost between the sampler and the barcode task");
 
-    /* A code that is not a command must be reported as a failure. */
+    /* Every letter A to Z is a command (the movement comes over MQTT). */
     start_decoded = g_lb_stats.bc_decoded;
     inject_code("WNNNWWNNN");                   /* the character 'F' */
     (void)tk_dly_tsk(300);
-    TEST_CHECK("INT-01c", g_lb_stats.bc_decoded == start_decoded,
-               "a valid Code 39 character that is not A-D is not a command");
+    TEST_CHECK("INT-01c", (g_lb_stats.bc_decoded == (start_decoded + 1u))
+               && ('F' == g_lb_stats.bc_last),
+               "a letter outside A-D ('F') is decoded too");
 
     TEST_SUMMARY("line_barcode");
 

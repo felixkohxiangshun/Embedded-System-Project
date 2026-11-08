@@ -120,6 +120,8 @@ IMPORT void mission_obstacle_test(void);
 #define ECHO_EDGE_RISE		0x1
 #define ECHO_EDGE_FALL		0x2
 IMPORT void ultra_echo_isr(UW now_us, UW edges);
+/* Barcode DO (GP28) edge, from the same bank-0 handler (line_barcode/ir_driver.c) */
+IMPORT void lb_bc_gpio_isr(UW now_us);
 
 /* Print a readable message if a kernel call failed (negative error code) */
 #define CHECK(er, what)							\

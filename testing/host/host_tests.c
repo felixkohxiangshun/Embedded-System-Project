@@ -145,9 +145,9 @@ int main(void)
 		MSG_TELEM t;
 		DASH_DEBUG g;
 		UB f[DASH_DEBUG_BYTES];
-		uint32_t cur = 0, v[12];
+		uint32_t cur = 0, v[14];
 		static const uint32_t tmax[12] = { 255, 15, 511, 65535, 359, 1, 255, 31, 31, 127, 1, 255 };
-		static const uint32_t gmax[12] = { 255, 1023, 1023, 1023, 2047, 3, 255, 255, 255, 31, 4095, 7 };
+		static const uint32_t gmax[14] = { 255, 1023, 1023, 1023, 2047, 3, 255, 255, 255, 31, 4095, 7, 15, 63 };
 		int i, ok = 1;
 
 		memset(&t, 0, sizeof t);
@@ -169,16 +169,28 @@ int main(void)
 		memset(&g, 0, sizeof g);
 		g.dark_c = 600; g.dark_r = 1500; g.err = -700; g.steer = 999; g.mode = 2;
 		g.bc_edges = 300; g.bc_ok = 1; g.bc_fail = 3; g.bc_last = 'B'; g.ultra_mm = 289; g.motor_state = MOT_DRIVING;
+		g.bc_status = 6; g.bc_count = 90;
 		cur = 0; ok = 1;
 		CHECK_T("S4-U12a", dash_pack_debug(&g, 200, f, DASH_DEBUG_BYTES) == DASH_DEBUG_BYTES,
-			"debug frame packs into 12 bytes");
-		for (i = 0; i < 12; i++) {
+			"debug frame packs into 14 bytes");
+		for (i = 0; i < 14; i++) {
 			ok &= protocol_bits_get(f, DASH_DEBUG_BYTES, &cur, gmax[i], &v[i]);
 		}
-		CHECK_T("S4-U12b", ok && cur == 95 && v[0] == 200 && v[1] == 600 && v[2] == 1023 && (int)v[3] - 512 == -512 &&
+		CHECK_T("S4-U12b", ok && cur == 105 && v[12] == 6 && v[13] == 63 && v[0] == 200 && v[1] == 600 && v[2] == 1023 && (int)v[3] - 512 == -512 &&
 			(int)v[4] - 1024 == 999 && v[5] == 2 && v[6] == 300 % 256 && v[7] == 1 && v[8] == 3 &&
 			v[9] == 1 && v[10] == 289 && v[11] == MOT_DRIVING,
 			"every debug field unpacks; out-of-range values clamped");
+	}
+	{
+		UW e[4] = { 1000, 13300, 20000, 20000 + 7000000 };
+		UB f[DASH_BC_TRACE_MAX];
+		INT n = dash_pack_bc_trace(9, 2, e, 4, f, (INT)sizeof(f));
+
+		CHECK_T("S4-U13", n == 9 && f[0] == 9 && f[1] == 2 && f[2] == 4 &&
+			f[3] == 123 && f[4] == 0 && f[5] == 67 && f[7] == 0xFF && f[8] == 0xFF &&
+			dash_pack_bc_trace(0, 0, e, 41, f, (INT)sizeof(f)) == -1 &&
+			dash_pack_bc_trace(0, 0, e, 4, f, 8) == -1,
+			"barcode trace: widths in 0.1 ms, long ones clamped, bad sizes refused");
 	}
 
 	/* ---------------- subsystem 4 ---------------- */
@@ -233,7 +245,7 @@ int main(void)
 	{
 		MISSION m; MISSION_ACT a = clear_act();
 		MSG_BCCMD b; MSG_OBS o; MSG_TERRAIN t; MSG_STEER s; MSG_MQTTCMD q;
-		SCAN_RESULT r; BOOL valid; int i;
+		SCAN_RESULT r; int i;
 
 		memset(&t, 0, sizeof t); memset(&s, 0, sizeof s); memset(&o, 0, sizeof o);
 		mission_init(&m);
@@ -258,28 +270,75 @@ int main(void)
 		mission_on_distance(&m, 1000 + JUNCTION_CREEP_MM - 1, &a);
 		CHECK_T("S5-H05c", m.state == SYS_LINE_FOLLOW && !(a.evt_flags & EVT_STOP), "still driving 1 mm short");
 		mission_on_distance(&m, 1000 + JUNCTION_CREEP_MM, &a);
-		CHECK_T("S5-H05d", m.state == SYS_BARCODE_CMD && a.n_nav == 1 && a.nav[0].type == NAV_TURN &&
-			a.nav[0].arg == JUNCTION_TURN_DEG, "after the creep distance: junction turn");
-		a = clear_act(); mission_on_tick(&m, 10, MOT_TURNING, 7, &a);
-		mission_on_tick(&m, 10, MOT_TURNING, 7, &a);
-		CHECK_T("S5-H05e", m.state == SYS_BARCODE_CMD && a.evt_flags == 0, "still turning");
-		mission_on_tick(&m, 10, MOT_STOPPED, 8, &a);
-		CHECK_T("S5-H05f", m.state == SYS_IDLE && (a.evt_flags & EVT_STOP) && !(a.evt_flags & EVT_RESUME),
-			"turn finished: stops and stays in IDLE");
+		CHECK_T("S5-H05d", m.state == SYS_LINE_FOLLOW && a.n_nav == 0 && !m.creeping,
+			"no letter stored: straight over the junction, no turn");
+		a = clear_act(); s.steer = 200; s.flags = 0; mission_on_steer(&m, &s, &a);
+		CHECK_T("S5-H05e", a.n_nav == 1 && a.nav[0].type == NAV_STEER && a.nav[0].arg == 200,
+			"after the junction: line following again");
+		a = clear_act(); mission_on_button(&m, &a);	/* back to IDLE for the tests below */
+		/* S5-U20: 'F' stored -> U-turn at the next junction, then drive on */
+		{
+			MISSION   mj;
+			MSG_BCCMD bj;
+
+			mission_init(&mj); mj.state = SYS_LINE_FOLLOW; a = clear_act();
+			bj.kind = BC_OK; bj.cmd = 'F'; mission_on_barcode(&mj, &bj, &a);
+			CHECK_T("S5-U20a", mj.state == SYS_LINE_FOLLOW && a.n_nav == 0 && mj.stored_char == 'F',
+				"barcode F: stored, no turn yet, keeps following the line");
+			s.steer = 0; s.flags = STEER_F_JUNCTION; mission_on_steer(&mj, &s, &a);
+			mission_on_distance(&mj, 500, &a);
+			a = clear_act(); mission_on_distance(&mj, 500 + JUNCTION_CREEP_MM, &a);
+			CHECK_T("S5-U20b", mj.state == SYS_BARCODE_CMD && a.n_nav == 1 && a.nav[0].type == NAV_TURN &&
+				a.nav[0].arg == 180 && mj.stored_char == 0,
+				"axle on the junction: U-turn sent, stored letter cleared");
+			a = clear_act(); mission_on_tick(&mj, 10, MOT_TURNING, 7, &a);
+			mission_on_tick(&mj, 10, MOT_TURNING, 7, &a);
+			CHECK_T("S5-U20c", mj.state == SYS_BARCODE_CMD && a.evt_flags == 0, "still turning");
+			mission_on_tick(&mj, 10, MOT_STOPPED, 8, &a);
+			CHECK_T("S5-U20d", mj.state == SYS_LINE_FOLLOW && (a.evt_flags & EVT_RESUME) &&
+				!(a.evt_flags & EVT_STOP), "U-turn done: line following continues");
+			a = clear_act(); s.flags = STEER_F_JUNCTION; mission_on_steer(&mj, &s, &a);
+			mission_on_distance(&mj, 2000, &a);
+			a = clear_act(); mission_on_distance(&mj, 2000 + JUNCTION_CREEP_MM, &a);
+			CHECK_T("S5-U20e", mj.state == SYS_LINE_FOLLOW && a.n_nav == 0,
+				"same junction on the way back: letter used up, straight over");
+			/* S5-U21: an unmapped letter goes forward; left/right when mapped */
+			CHECK_T("S5-U21a", mission_junction_deg(&mj, 'A') == 0 && mission_junction_deg(&mj, 0) == 0 &&
+				mission_junction_deg(&mj, 'F') == 180, "only F is mapped (U-turn); others go forward");
+			mj.move_map[JMOVE_LEFT] = 'L'; mj.move_map[JMOVE_RIGHT] = 'R';
+			CHECK_T("S5-U21b", mission_junction_deg(&mj, 'L') == -90 && mission_junction_deg(&mj, 'R') == 90,
+				"left and right follow the mapping table");
+			s.flags = 0;
+		}
+		/* barcode floor test: stop once a barcode is read or has failed */
+		{
+			MISSION mb;
+			MSG_BCCMD bb;
+
+			mission_init(&mb); mb.stop_at_barcode = 1; mb.state = SYS_LINE_FOLLOW; a = clear_act();
+			bb.kind = BC_SEEN; bb.cmd = 0; mission_on_barcode(&mb, &bb, &a);
+			CHECK_T("S5-H07a", mb.state == SYS_BARCODE_SCAN && !(a.evt_flags & EVT_STOP),
+				"barcode seen: keeps driving over it");
+			bb.kind = BC_OK; bb.cmd = 'Q'; mission_on_barcode(&mb, &bb, &a);
+			CHECK_T("S5-H07b", mb.state == SYS_IDLE && (a.evt_flags & EVT_STOP) && a.n_nav == 0 &&
+				mb.last_barcode == 'Q', "barcode read: stops in IDLE, letter kept, no turn");
+			mb.state = SYS_LINE_FOLLOW; a = clear_act();
+			bb.kind = BC_FAIL; mission_on_barcode(&mb, &bb, &a);
+			CHECK_T("S5-H07c", mb.state == SYS_IDLE && (a.evt_flags & EVT_STOP), "failed barcode also stops");
+			mission_init(&mb); mb.state = SYS_IDLE; a = clear_act();
+			bb.kind = BC_OK; bb.cmd = 'F'; mission_on_barcode(&mb, &bb, &a);
+			CHECK_T("S5-H08", mb.state == SYS_IDLE && a.n_nav == 0 && a.evt_flags == 0 &&
+				mb.last_barcode == 'F' && mb.stored_char == 'F',
+				"letter read while IDLE (hand swipe): shown and stored, car does not move");
+		}
 		s.flags = 0; a = clear_act(); mission_on_button(&m, &a); a = clear_act();
 		s.steer = 321; mission_on_steer(&m, &s, &a);
 		CHECK_T("S5-U02a", a.n_nav == 1 && a.nav[0].type == NAV_STEER && a.nav[0].arg == 321, "steering forwarded");
 		b.kind = BC_SEEN; b.cmd = 0; mission_on_barcode(&m, &b, &a);
 		CHECK_T("S5-U02b", m.state == SYS_BARCODE_SCAN, "-> BARCODE_SCAN");
-		CHECK_T("S5-U03", mission_barcode_turn('A', &valid) == -90 && mission_barcode_turn('B', &valid) == 90 &&
-			mission_barcode_turn('C', &valid) == 0 && mission_barcode_turn('D', &valid) == 180 &&
-			(mission_barcode_turn('Z', &valid), !valid), "A/B/C/D commands");
 		a = clear_act(); b.kind = BC_OK; b.cmd = 'B'; mission_on_barcode(&m, &b, &a);
-		CHECK_T("S5-U03b", m.state == SYS_BARCODE_CMD && a.nav[0].type == NAV_TURN && a.nav[0].arg == 90, "turn right 90 sent");
-		a = clear_act();
-		mission_on_tick(&m, 5, MOT_TURNING, 4, &a);
-		mission_on_tick(&m, 5, MOT_STOPPED, 5, &a);
-		CHECK_T("S5-U03c", m.state == SYS_LINE_FOLLOW && (a.evt_flags & EVT_RESUME), "turn done -> LINE_FOLLOW");
+		CHECK_T("S5-U03", m.state == SYS_LINE_FOLLOW && a.n_nav == 0 && m.stored_char == 'B',
+			"barcode read: no immediate turn, letter stored for the junction");
 		a = clear_act(); b.kind = BC_SEEN; mission_on_barcode(&m, &b, &a);
 		b.kind = BC_FAIL; mission_on_barcode(&m, &b, &a);
 		CHECK_T("S5-U04", m.state == SYS_LINE_FOLLOW && a.n_nav == 0, "failed decode: no turn");

@@ -18,10 +18,15 @@
 
 #include "mission_obstacle.h"
 
-/* Junction floor test: 0 drops barcode results, so a false read cannot turn
-   the car.  Restore 1 after the test. */
+/* 0 drops barcode results, so a false read cannot turn the car. */
 #ifndef MISSION_USE_BARCODE
-#define MISSION_USE_BARCODE	0
+#define MISSION_USE_BARCODE	1
+#endif
+
+/* Barcode floor test: 1 stops the car in IDLE as soon as a barcode has been
+   decoded or has failed, instead of acting on it.  Restore 0 after. */
+#ifndef S5_TEST_STOP_AT_BARCODE
+#define S5_TEST_STOP_AT_BARCODE	0
 #endif
 
 EXPORT volatile UW s5_mission_ticks;
@@ -54,6 +59,7 @@ LOCAL void publish(const MISSION *m)
 	}
 	app_state.sys_state = m->state;
 	app_state.last_barcode = m->last_barcode;
+	app_state.stored_char = m->stored_char;
 	app_state.hump_mm = m->hump_mm;
 	app_state.hump_max_mm = m->hump_max_mm;
 	app_state.shock = m->shock;
@@ -98,6 +104,7 @@ EXPORT void mission_task(INT stacd, void *exinf)
 	(void)stacd; (void)exinf;
 	gpio_set_pin(PIN_LED_STATUS, GPIO_MODE_OUT);
 	mission_init(&m);
+	m.stop_at_barcode = S5_TEST_STOP_AT_BARCODE;
 
 	while (1) {
 		tk_dly_tsk(MISSION_TICK_MS);

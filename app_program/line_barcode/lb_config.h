@@ -60,7 +60,7 @@
  * dark-scale counts and goes through the same slicer, so everything after
  * the sampler is identical to the analogue mode.
  * 1 = digital (DO on GP28), 0 = analogue (AO on GP28, the current wiring). */
-#define LB_BC_USE_GPIO_LEVEL        0
+#define LB_BC_USE_GPIO_LEVEL        1
 
 /* Digital mode: 1 if DO is HIGH over a dark bar, 0 if DO is LOW over a
  * dark bar.  [CAL] Typical TCRT5000 / LM393 modules pull DO LOW over a
@@ -70,6 +70,12 @@
 #define LB_BC_GPIO_DARK_IS_HIGH     1
 #define LB_BC_GPIO_DARK_COUNT       3600
 #define LB_BC_GPIO_LIGHT_COUNT      500
+
+/* Digital mode: a DO change counts only once the level has held this many
+ * microseconds (comparator chatter is shorter).  Narrow elements at
+ * driving speed were measured at 1.3 to 5 ms, so this must stay far below
+ * that.  [CAL] */
+#define LB_BC_GPIO_DEBOUNCE_US      200u
 
 /* 1 kHz sampler: conversions per sensor that are averaged.  One extra
  * conversion is read and thrown away after each channel change so that the
@@ -290,8 +296,8 @@
  * speed. */
 #define LB_BC_WIDE_RATIO_X10        12u
 
-/* The three characters must be read at similar speed: their narrow bar
- * widths may differ by at most this many tenths (30 means 3 times). */
+/* The three characters must be read at similar speed: the time to read one
+ * character may differ by at most this many tenths (30 means 3 times). */
 #define LB_BC_SPEED_RATIO_X10       30u
 
 /* The gap between characters must lie between these tenths of the narrow
@@ -304,15 +310,20 @@
 #define LB_BC_GLITCH_X10            4u
 
 /* 1 = a barcode read backwards (car driving the other way) is decoded and
- * acted on.  0 = it is recognised but reported as a failure.  The commands
- * are written for the forward direction, so the default is 0. */
-#define LB_BC_ACCEPT_REVERSED       0
+ * acted on.  0 = it is recognised but reported as a failure.  The demo
+ * requires the same letter in either direction, so this is 1. */
+#define LB_BC_ACCEPT_REVERSED       1
 
 /* A capture that goes quiet ends after max(MIN, FACTOR x longest element),
- * limited to MAX milliseconds, so slow driving never cuts a code short. */
-#define LB_BC_SILENCE_MIN_MS        150u
+ * limited to MAX milliseconds, so slow driving never cuts a code short.
+ * MIN covers the first bar, before any element has been measured.  At the
+ * 24 mm/s floor-test speed a code takes about 7 s and the car can crawl for
+ * a moment, so captures ended part-way with 2000 ms; now 2500 and 6000.
+ * A complete code is still decoded at once (at 30 edges); only a failed
+ * read is reported later. */
+#define LB_BC_SILENCE_MIN_MS        2500u
 #define LB_BC_SILENCE_FACTOR        4u
-#define LB_BC_SILENCE_MAX_MS        2000u
+#define LB_BC_SILENCE_MAX_MS        6000u
 
 /* Most edges remembered for one capture (30 are a full code; the rest is
  * room for noise edges in front of or inside the code). */

@@ -77,6 +77,8 @@ LOCAL void sample_debug(DASH_DEBUG *g)
 	g->bc_fail = g_lb_stats.bc_failed;
 	g->bc_last = (UB)g_lb_stats.bc_last;
 	g->ultra_mm = s5_scan_last_mm;
+	g->bc_status = (UB)g_lb_stats.bc_status;
+	g->bc_count = g_lb_stats.bc_count;
 	g->motor_state = MOT_STOPPED;
 	if (state_lock(TMO_POL) == E_OK) {
 		g->motor_state = app_state.motor_state;
@@ -94,7 +96,11 @@ EXPORT void dashboard_task(INT stacd, void *exinf)
 #if DASH_DEBUG_FRAMES
 	UB              debug_seq = 0;
 	DASH_DEBUG      g;
+	UB              bc_frame[DASH_BC_TRACE_MAX];
+	UW              bc_edges[DASH_BC_TRACE_EDGES];
+	UW              bc_seq_sent = 0;
 #endif
+	UB              stored = 0;		/* Mission's letter for the next junction */
 	DASH            d;
 	DASH_IN         din;
 	DASH_OUT        dout;
@@ -146,13 +152,13 @@ EXPORT void dashboard_task(INT stacd, void *exinf)
 		s4_state = d.state;
 		if (state_lock(TMO_POL) == E_OK) {
 			app_state.net_online = (d.state == DASH_ONLINE || d.state == DASH_HEARTBEAT) ? 1 : 0;
+			stored = app_state.stored_char;
 			state_unlock();
 		}
 
 		if (din.got_telem && dout.publish_telem) {
-			/* online: the 11-byte binary frame (TEAM.md 7); no stored
-			   character exists yet on this branch */
-			len = dash_pack_telem(&latest, telem_seq++, DASH_CHAR_NONE,
+			/* online: the 11-byte binary frame (TEAM.md 7) */
+			len = dash_pack_telem(&latest, telem_seq++, dash_char_code(stored),
 					      frame, (INT)sizeof(frame));
 			if (len > 0) {
 				s4_frames++;
@@ -177,6 +183,23 @@ EXPORT void dashboard_task(INT stacd, void *exinf)
 			len = dash_pack_debug(&g, debug_seq++, frame, (INT)sizeof(frame));
 			if (len > 0) {
 				send_out(MQTTM_DEBUG, frame, len);
+			}
+			/* A capture finished: send its element widths once. */
+			if (g_lb_bc_trace.seq != bc_seq_sent) {
+				INT n = (INT)g_lb_bc_trace.count, k;
+
+				bc_seq_sent = g_lb_bc_trace.seq;
+				if (n > DASH_BC_TRACE_EDGES) {
+					n = DASH_BC_TRACE_EDGES;
+				}
+				for (k = 0; k < n; k++) {
+					bc_edges[k] = g_lb_bc_trace.edge_us[k];
+				}
+				len = dash_pack_bc_trace((UB)bc_seq_sent, (UB)g_lb_bc_trace.status,
+							 bc_edges, n, bc_frame, (INT)sizeof(bc_frame));
+				if (len > 0) {
+					send_out(MQTTM_BARCODE, bc_frame, len);
+				}
 			}
 		}
 #endif

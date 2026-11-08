@@ -29,6 +29,7 @@ static bool handle_edge(capture_t * p_capture, MSG_EDGE const * p_msg);
 static void decode_and_post(capture_t * p_capture);
 static void finish_capture(capture_t * p_capture);
 static void post_message(uint8_t kind, uint8_t command);
+static void record_trace(void);
 
 void
 barcode_task (INT stacd, void * p_exinf)
@@ -38,7 +39,8 @@ barcode_task (INT stacd, void * p_exinf)
     (void)stacd;
     (void)p_exinf;
 
-    capture.b_posted = false;
+    capture.b_posted     = false;
+    g_lb_stats.bc_status = LB_BC_STATUS_NONE;
 
     for (;;)
     {
@@ -68,7 +70,8 @@ capture_one_code (capture_t * p_capture)
 
     while (!b_done)
     {
-        /* Cast: the silence time is below 2000, so it fits the kernel's TMO. */
+        /* Cast: the silence time is at most LB_BC_SILENCE_MAX_MS (6000),
+         * so it fits the kernel's TMO. */
         timeout = bc_stream_is_active(&g_stream)
                   ? (TMO)bc_stream_silence_ms(&g_stream)
                   : TMO_FEVR;
@@ -162,6 +165,12 @@ decode_and_post (capture_t * p_capture)
     b_accept = (BC_DECODE_OK == status)
                && ((!b_reversed) || (0 != LB_BC_ACCEPT_REVERSED));
 
+    /* Kept for the dashboard's debug frame: why the last attempt failed. */
+    g_lb_stats.bc_count  = bc_stream_count(&g_stream);
+    g_lb_stats.bc_status = ((BC_DECODE_OK == status) && (!b_accept))
+                           ? LB_BC_STATUS_REVERSED
+                           : (uint32_t)status;
+
     if (b_accept)
     {
         g_lb_stats.bc_state = LB_BC_STATE_POST;
@@ -206,13 +215,41 @@ finish_capture (capture_t * p_capture)
         else
         {
             /* Only a few stray edges (dirt, a shadow): Mission was never
-             * told, so there is nothing to withdraw. */
+             * told, so there is nothing to withdraw.  Still shown on the
+             * dashboard, so a capture that ends too early is visible. */
+            g_lb_stats.bc_count  = bc_stream_count(&g_stream);
+            g_lb_stats.bc_status = LB_BC_STATUS_SHORT;
         }
     }
     else
     {
         /* The result was posted while capturing. */
     }
+
+    record_trace();
+
+    return;
+}
+
+/*!
+ * @brief Copy the edges of the finished capture for the dashboard.
+ */
+static void
+record_trace (void)
+{
+    uint32_t idx   = 0u;
+    uint32_t count = bc_stream_count(&g_stream);
+
+    /* The stream is read directly: barcode_task owns it and nothing else
+     * changes it while this runs. */
+    for (idx = 0u; (idx < count) && (idx < LB_BC_MAX_EDGES); idx++)
+    {
+        g_lb_bc_trace.edge_us[idx] = g_stream.edge_us[idx];
+    }
+
+    g_lb_bc_trace.count  = idx;
+    g_lb_bc_trace.status = g_lb_stats.bc_status;
+    g_lb_bc_trace.seq++;
 
     return;
 }

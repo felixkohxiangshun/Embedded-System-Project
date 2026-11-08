@@ -25,10 +25,14 @@ Define a test here before running it. Test IDs never change.
 | S2-U10 | Line task runs every 10 ms | NFR-03 | auto | `line_barcode_test.c` | `[TEST] S2-U10 PASS` |
 | S2-U11 | timer wrap in the middle of a code is harmless | FR-02 | host | `lb_host_tests.c` | `[TEST] S2-U11 PASS` |
 | S2-U12 | darkness 0..1000 and clamping (a–c) | FR-01 | host | `lb_host_tests.c` | `[TEST] S2-U12a..c PASS` |
-| S2-U13 | valid Code 39 characters F, W, X, Y, Z are read but are not commands | FR-03, NFR-05 | host | `lb_host_tests.c` | `[TEST] S2-U13 PASS` |
+| S2-U13 | **Superseded 2026-11-07:** every letter A–Z is now a command, see S2-U30 and S2-U31. Was: valid Code 39 characters F, W, X, Y, Z are read but are not commands | FR-03, NFR-05 | host | `lb_host_tests.c` | `[TEST] S2-U13 PASS` |
+| S2-U30 | every letter A–Z decodes from its Code 39 pattern | FR-02, FR-03 | auto, host | `lb_host_tests.c` | `[TEST] S2-U30 PASS` |
+| S2-U31 | every letter A–Z decodes to the same letter when the code is read in the opposite direction | FR-02, FR-03 | auto, host | `lb_host_tests.c` | `[TEST] S2-U31 PASS` |
+| S2-U32 | widths from a real hand swipe on 2026-11-07 (narrow bars read 0.4–7.8 ms, narrow spaces 5–8 ms) decode as *F*; the speed check now compares each character's total time, not its narrow bars | FR-02 | host | `lb_host_tests.c` | `[TEST] S2-U32 PASS` |
+| S2-U33 | DO debouncer (digital mode, edges from the GP28 interrupt): a 1.3 ms bar gives two edges at the exact interrupt times (a); chatter at both edges gives two edges (b); a 100 µs speck is ignored (c); timer wrap is harmless (d). Replaces the 10 ms filter + slicer, which lost the 1–5 ms narrow elements measured while driving on 2026-11-07 | FR-02 | host | `lb_host_tests.c` | `[TEST] S2-U33a..d PASS` |
 | S2-U14 | a code driven over backwards is flagged as reversed | FR-02 | host | `lb_host_tests.c` | `[TEST] S2-U14 PASS` |
 | S2-U15 | edge timing noise of ±0.3 unit: ≥ 95 % read, none read wrong | NFR-05 | host | `lb_host_tests.c` | `[TEST] S2-U15 PASS` |
-| S2-U16 | edge stream: SEEN once, FULL at 30, stray edges ignored (a–d) | FR-02 | host | `lb_host_tests.c` | `[TEST] S2-U16a..d PASS` |
+| S2-U16 | edge stream: SEEN once, FULL at 30, stray edges ignored (a–d); a 30-edge capture with one narrow space squeezed to 0.3× still decodes, because the raw edges are tried before glitch merging (e, added 2026-11-07 after a 30/30 hand swipe failed with COUNT) | FR-02 | host | `lb_host_tests.c` | `[TEST] S2-U16a..e PASS` |
 | S2-U17 | a short speck inside an element is merged away | NFR-05 | host | `lb_host_tests.c` | `[TEST] S2-U17 PASS` |
 | S2-U18 | optics simulation: no pass is decoded to a wrong command | NFR-05 | host | `lb_host_tests.c` | `[TEST] S2-U18 PASS` |
 | S2-U19 | optics simulation: ≥ 98 % correct, 60–160 mm/s, spot 3–5 mm | FR-02 | host | `lb_host_tests.c` | `[TEST] S2-U19 PASS` |

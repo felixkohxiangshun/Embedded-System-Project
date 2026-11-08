@@ -38,7 +38,7 @@
 /** Result of a decode attempt. */
 typedef enum
 {
-    BC_DECODE_OK = 0,           /* valid "*X*", X is A, B, C or D */
+    BC_DECODE_OK = 0,           /* valid "*X*", X is a letter A to Z */
     BC_DECODE_ERR_NULL,         /* a pointer argument was NULL */
     BC_DECODE_ERR_COUNT,        /* not exactly BC_DECODE_NUM_EDGES edges */
     BC_DECODE_ERR_WIDTH,        /* a character has no clear 2+1 wide pattern */
@@ -47,7 +47,7 @@ typedef enum
     BC_DECODE_ERR_SPEED,        /* the three characters differ too much in
                                    speed */
     BC_DECODE_ERR_COMMAND       /* well formed, but the character is not a
-                                   navigation command (A to D) */
+                                   letter A to Z */
 } bc_decode_status_t;
 
 /*!
@@ -62,7 +62,7 @@ typedef enum
  *                           first edge starts a dark bar.  Wrap-around of
  *                           the 32-bit timer is handled.
  * @param[in]  num_edges     Number of edges; must be BC_DECODE_NUM_EDGES.
- * @param[out] p_command     'A' to 'D' when the result is BC_DECODE_OK.  When
+ * @param[out] p_command     'A' to 'Z' when the result is BC_DECODE_OK.  When
  *                           the result is BC_DECODE_ERR_COMMAND it holds the
  *                           character that was read (0 if unknown).
  * @param[out] p_b_reversed  true when the code was read backwards.
@@ -84,7 +84,7 @@ bc_decode_status_t bc_decode_edges(uint32_t const * p_edge_us,
  *
  * @param[in]  p_edge_us     Edge times in microseconds, oldest first.
  * @param[in]  num_edges     Number of edges (at least BC_DECODE_NUM_EDGES).
- * @param[out] p_command     'A' to 'D' when the result is BC_DECODE_OK.  When
+ * @param[out] p_command     'A' to 'Z' when the result is BC_DECODE_OK.  When
  *                           the result is BC_DECODE_ERR_COMMAND it holds the
  *                           character that was read (0 if unknown).
  * @param[out] p_b_reversed  true when the code was read backwards.

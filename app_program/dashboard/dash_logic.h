@@ -45,7 +45,7 @@ IMPORT UB   dash_parse_cmd(const char *text, INT len);
    fields in the order listed, starting at bit 0 of byte 0 (least
    significant bit first).  Signed fields are sent with an offset. */
 #define DASH_TELEM_BYTES	11	/* 81 bits of fields, 7 spare */
-#define DASH_DEBUG_BYTES	12	/* 95 bits of fields, 1 spare */
+#define DASH_DEBUG_BYTES	14	/* 105 bits of fields, 7 spare */
 #define DASH_HB_BYTES		1	/* system state only */
 #define DASH_CHAR_NONE		31	/* character code: A..Z = 0..25 */
 
@@ -62,11 +62,21 @@ typedef struct {
 	UB	bc_last;	/* last decoded character, 0 = none */
 	INT	ultra_mm;	/* last ultrasonic reading, 0 = no echo */
 	UB	motor_state;	/* MOT_xxx */
+	UB	bc_status;	/* last decode result, 0 = OK (bc_decode_status_t) */
+	UW	bc_count;	/* edges in the last capture (sent up to 63) */
 } DASH_DEBUG;
 
 IMPORT UB   dash_char_code(UB ch);
 IMPORT INT  dash_pack_telem(const MSG_TELEM *t, UB seq, UB stored_char,
 			    UB *buf, INT size);
 IMPORT INT  dash_pack_debug(const DASH_DEBUG *g, UB seq, UB *buf, INT size);
+
+/* Barcode trace frame (csc11/dev/car/barcode), sent once per capture:
+   seq, decode status, edge count n, then the n-1 element widths (bar,
+   space, bar, ...) as 16-bit little-endian values in 0.1 ms. */
+#define DASH_BC_TRACE_EDGES	40
+#define DASH_BC_TRACE_MAX	(3 + 2 * (DASH_BC_TRACE_EDGES - 1))
+IMPORT INT  dash_pack_bc_trace(UB seq, UB status, const UW *edge_us, INT count,
+			       UB *buf, INT size);
 
 #endif

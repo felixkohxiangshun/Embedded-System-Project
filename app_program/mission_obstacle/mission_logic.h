@@ -24,7 +24,7 @@
 /* Timeouts, ms.  Every waiting state has one, so nothing can hang. */
 #define MS_INIT			500	/* let sensors settle (IMU calibrates) */
 #define MS_INIT_NET		20000	/* INIT waits this long for WiFi + MQTT */
-#define MS_BARCODE_SCAN		3000
+#define MS_BARCODE_SCAN		15000	/* a whole code at 24 mm/s takes about 7 s */
 #define MS_BARCODE_CMD		5000	/* a 90 or 180 degree turn */
 #define MS_HUMP			3000
 #define MS_OBSTACLE_SCAN	10000	/* stop, sweep five angles, evaluate */
@@ -34,7 +34,16 @@
 #define SEQ_UNSET		0xFFFFFFFFu	/* done_seq_base not captured yet */
 #define LINE_FOUND_TICKS	5	/* consecutive steer messages with the line */
 #define JUNCTION_CREEP_MM	150	/* detection to axle on the junction [CAL] */
-#define JUNCTION_TURN_DEG	180	/* floor test: u-turn, + = right */
+
+/* Junction moves (TEAM.md 7): which letter means which move.  The mapping
+   is meant to come from the PC over MQTT; until that command exists only
+   U-turn = 'F' is set.  0 = no letter mapped to that move. */
+#define JMOVE_FORWARD		0
+#define JMOVE_UTURN		1
+#define JMOVE_LEFT		2
+#define JMOVE_RIGHT		3
+#define JMOVE_COUNT		4
+#define JMAP_DEFAULT_UTURN	'F'
 
 /* What the caller must do after an event.  Actions accumulate; the caller
    clears the struct before feeding a batch of events. */
@@ -55,6 +64,7 @@ typedef struct {
 	UW	recoveries;		/* FAULT_RECOVERY count (telemetry) */
 	/* results, copied to app_state by the task */
 	UB	last_barcode;
+	UB	stored_char;		/* letter kept for the next cross junction, 0 = none */
 	INT	hump_mm;
 	INT	hump_max_mm;
 	UB	shock;
@@ -69,7 +79,8 @@ typedef struct {
 	UB	creeping;		/* junction seen: driving straight to it */
 	UB	creep_primed;		/* creep_base_mm holds the start distance */
 	UW	creep_base_mm;		/* distance when the creep began */
-	UB	stop_after_turn;	/* BARCODE_CMD: go to IDLE, do not drive on */
+	UB	move_map[JMOVE_COUNT];	/* letter for each JMOVE_xxx, 0 = none */
+	UB	stop_at_barcode;	/* floor test: stop once a barcode is read, set by the task */
 } MISSION;
 
 IMPORT void mission_init(MISSION *m);
@@ -91,8 +102,9 @@ IMPORT void mission_on_tick(MISSION *m, INT dt_ms, UB motor_state,
    creep once the car has driven JUNCTION_CREEP_MM. */
 IMPORT void mission_on_distance(MISSION *m, UW dist_mm, MISSION_ACT *a);
 
-/* FR-03: 'A' left 90, 'B' right 90, 'C' straight, 'D' u-turn.
-   Degrees, + right.  *valid is FALSE for any other character. */
-IMPORT INT  mission_barcode_turn(UB ch, BOOL *valid);
+/* TEAM.md 7: the turn for a stored letter at a cross junction, in degrees
+   (+ right): forward 0, U-turn 180, left -90, right +90.  A letter that is
+   not mapped (or 0, nothing stored) goes forward. */
+IMPORT INT  mission_junction_deg(const MISSION *m, UB ch);
 
 #endif /* MISSION_LOGIC_H */

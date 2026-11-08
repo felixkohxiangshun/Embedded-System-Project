@@ -315,6 +315,35 @@ EXPORT INT dash_pack_debug(const DASH_DEBUG *g, UB seq, UB *buf, INT size)
 	ok &= put(buf, size, &cur, dash_char_code(g->bc_last), 31);
 	ok &= put(buf, size, &cur, clampi(g->ultra_mm, 0, 4095), 4095);
 	ok &= put(buf, size, &cur, g->motor_state & 7u, 7);
+	ok &= put(buf, size, &cur, g->bc_status & 15u, 15);
+	ok &= put(buf, size, &cur, clampi((INT)g->bc_count, 0, 63), 63);
 	return ok ? DASH_DEBUG_BYTES : -1;
 }
 
+/* Returns the frame length, or -1 if buf is too small or count is bad */
+EXPORT INT dash_pack_bc_trace(UB seq, UB status, const UW *edge_us, INT count,
+			      UB *buf, INT size)
+{
+	INT i, len;
+	UW  w;
+
+	if (count < 0 || count > DASH_BC_TRACE_EDGES || (count > 0 && edge_us == NULL)) {
+		return -1;
+	}
+	len = 3 + 2 * (count > 1 ? count - 1 : 0);
+	if (size < len) {
+		return -1;
+	}
+	buf[0] = seq;
+	buf[1] = status;
+	buf[2] = (UB)count;
+	for (i = 1; i < count; i++) {
+		w = (edge_us[i] - edge_us[i - 1]) / 100u;	/* 0.1 ms; wraps safely */
+		if (w > 0xFFFFu) {
+			w = 0xFFFFu;
+		}
+		buf[3 + 2 * (i - 1)] = (UB)(w & 0xFFu);
+		buf[4 + 2 * (i - 1)] = (UB)(w >> 8);
+	}
+	return len;
+}

@@ -7,16 +7,20 @@ export const TOPICS = Object.freeze({
   telemetry: 'csc11/dev/car/telemetry',
   debug: 'csc11/dev/car/debug',
   heartbeat: 'csc11/dev/car/heartbeat',
+  barcode: 'csc11/dev/car/barcode',
   command: 'csc11/dev/car/cmd',
 });
 export const TELEM_BYTES = 11;
-export const DEBUG_BYTES = 12;
+export const DEBUG_BYTES = 14;
 export const CHAR_NONE = 31;
 
 export const SYS_STATES = ['INIT', 'IDLE', 'LINE_FOLLOW', 'BARCODE_SCAN', 'BARCODE_CMD',
   'HUMP_TRAVERSE', 'OBSTACLE_SCAN', 'OBSTACLE_BYPASS', 'LINE_REACQUIRE', 'FAULT_RECOVERY', 'E_STOP'];
 export const MOTOR_STATES = ['STOPPED', 'DRIVING', 'TURNING', 'BYPASS', 'ENCODER_FAULT'];
 export const LINE_MODES = ['TRACK', 'COAST', 'SWEEP'];
+export const BC_RESULTS = ['OK', 'NULL', 'COUNT (not 30 edges)', 'WIDTH (no clear narrow/wide)', 'FRAME (start/stop not *)',
+  'GAP (character gap wrong)', 'SPEED (speed changed)', 'COMMAND (not a letter)', 'REVERSED (refused)',
+  'SHORT (under 6 edges, ignored)', '', '', '', '', '', 'none yet'];
 export const FAULTS = ['IMU', 'ENCODER', 'LINE', 'SCAN', 'MOTOR_STALL', 'WIFI', 'HUMP_RANGE', 'MISSION_TMO'];
 
 const bitsFor = maximum => (maximum === 0 ? 0 : 32 - Math.clz32(maximum));
@@ -78,7 +82,10 @@ export function decodeDebug(bytes) {
   const bcLast = r.get(31);
   const ultraMm = r.get(4095);
   const motor = r.get(7);
+  const bcStatus = r.get(15);
+  const bcCount = r.get(63);
   return {
+    bcStatus, bcResult: stateName(BC_RESULTS, bcStatus), bcCount,
     seq, darkC, darkR, err, steer, mode, modeName: stateName(LINE_MODES, mode),
     bcEdges, bcOk, bcFail, bcLast: charName(bcLast), ultraMm: ultraMm === 0 ? null : ultraMm,
     motor, motorName: stateName(MOTOR_STATES, motor),
@@ -88,6 +95,18 @@ export function decodeDebug(bytes) {
 export function decodeHeartbeat(bytes) {
   if (bytes.length !== 1) throw new Error('heartbeat must be 1 byte');
   return { state: bytes[0], stateName: stateName(SYS_STATES, bytes[0]) };
+}
+
+// Barcode trace: seq, status, edge count n, then n-1 widths (u16 LE, 0.1 ms),
+// bar first.  Sent once per finished capture.
+export function decodeBcTrace(bytes) {
+  if (bytes.length < 3) throw new Error('barcode trace needs at least 3 bytes');
+  const count = bytes[2];
+  const widths = Math.max(count - 1, 0);
+  if (bytes.length !== 3 + 2 * widths) throw new Error('barcode trace length does not match its edge count');
+  const widthsMs = [];
+  for (let i = 0; i < widths; i++) widthsMs.push((bytes[3 + 2 * i] | (bytes[4 + 2 * i] << 8)) / 10);
+  return { seq: bytes[0], status: bytes[1], result: stateName(BC_RESULTS, bytes[1]), count, widthsMs };
 }
 
 // Frames lost between two sequence numbers (both wrap at 256)
