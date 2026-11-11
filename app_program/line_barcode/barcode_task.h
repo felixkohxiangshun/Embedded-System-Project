@@ -13,6 +13,11 @@
  *  FAILED     sending BC_FAIL (bad widths, bad frame, unknown character).
  *
  * @par
+ * BC_FIRST is sent when the second dark bar of a capture starts within
+ * LB_BC_FIRST_WINDOW_MM of the first (a junction line is one bar).  Mission
+ * may answer with EVT_BC_HOLD (drop the capture, ignore edges while the
+ * car backs up) and later EVT_BC_ARM (start a fresh capture for the slow
+ * pass).  With no answer the capture simply runs on.
  * BC_SEEN is sent as soon as the capture holds a few edges, so Mission can
  * enter BARCODE_SCAN.  Every BC_SEEN is followed by exactly one BC_OK or
  * BC_FAIL, so Mission never waits forever.  The car keeps following the line

@@ -22,12 +22,12 @@ EXPORT volatile UB s1_state;
 
 /* A bypass is a short list of segments: pivot turns and straight runs */
 #define SEG_TURN	1	/* val = degrees, + right */
-#define SEG_FWD		2	/* val = mm */
+#define SEG_FWD		2	/* val = mm, - = backwards */
 #define BYPASS_LEG_MM	150	/* extra distance beside the obstacle [CAL] */
 #define BYPASS_MARGIN_MM 60	/* sideways clearance added to half width [CAL] */
 #define MAX_SEGS	8
 
-typedef struct { UB kind; INT val; } SEG;
+typedef struct { UB kind; INT val; INT mmps; } SEG;	/* mmps: SEG_FWD speed */
 
 LOCAL SEG   segs[MAX_SEGS];
 LOCAL INT   seg_n, seg_i;
@@ -91,7 +91,7 @@ LOCAL void seg_begin(void)
 			seg_goal = 0;
 		}
 	} else {
-		seg_goal = mm_to_counts(segs[seg_i].val);
+		seg_goal = mm_to_counts(segs[seg_i].val < 0 ? -segs[seg_i].val : segs[seg_i].val);
 	}
 }
 
@@ -110,6 +110,17 @@ LOCAL void start_turn(INT degrees)
 	seq_start(MOT_TURNING);
 }
 
+/* Straight run of mm (- = backwards) at mmps (0 = SPEED_MOVE_MMPS), e.g.
+   backing up over a barcode, or reversing slowly to read it again */
+LOCAL void start_move(INT mm, INT mmps)
+{
+	segs[0].kind = SEG_FWD;
+	segs[0].val = mm;
+	segs[0].mmps = (mmps > 0) ? clamp_i(mmps, 1, SPEED_MOVE_MMPS) : SPEED_MOVE_MMPS;
+	seg_n = 1;
+	seq_start(MOT_TURNING);
+}
+
 /* Go round an obstacle of 'width' mm on 'side' (+1 right, -1 left):
    out, past, back, onto the line, then face along it again. */
 LOCAL void start_bypass(INT side, INT width)
@@ -118,11 +129,11 @@ LOCAL void start_bypass(INT side, INT width)
 	INT deg = 90 * (side >= 0 ? 1 : -1);
 
 	segs[0].kind = SEG_TURN; segs[0].val = deg;
-	segs[1].kind = SEG_FWD;  segs[1].val = lateral;
+	segs[1].kind = SEG_FWD;  segs[1].val = lateral;  segs[1].mmps = SPEED_SLOW_MMPS;
 	segs[2].kind = SEG_TURN; segs[2].val = -deg;
-	segs[3].kind = SEG_FWD;  segs[3].val = BYPASS_LEG_MM + width;
+	segs[3].kind = SEG_FWD;  segs[3].val = BYPASS_LEG_MM + width;  segs[3].mmps = SPEED_SLOW_MMPS;
 	segs[4].kind = SEG_TURN; segs[4].val = -deg;
-	segs[5].kind = SEG_FWD;  segs[5].val = lateral;
+	segs[5].kind = SEG_FWD;  segs[5].val = lateral;  segs[5].mmps = SPEED_SLOW_MMPS;
 	segs[6].kind = SEG_TURN; segs[6].val = deg;
 	seg_n = 7;
 	seq_start(MOT_BYPASS);
@@ -153,6 +164,11 @@ LOCAL void handle_nav(const MSG_NAV *m)
 			start_bypass(m->arg, m->arg2);
 		}
 		break;
+	case NAV_MOVE:
+		if (state != MOT_TURNING && state != MOT_BYPASS) {
+			start_move(m->arg, m->arg2);
+		}
+		break;
 	default:
 		break;
 	}
@@ -174,8 +190,10 @@ LOCAL void handle_events(void)
 		enter(MOT_STOPPED);
 	} else if (ptn & (EVT_START | EVT_RESUME)) {
 		if (state == MOT_STOPPED || state == MOT_ENCODER_FAULT) {
+			/* The speed is left alone: Mission sends NAV_RESUME or
+			   NAV_SLOW with every start, and resetting it here could
+			   undo a NAV_SLOW that arrived a tick earlier. */
 			steer = 0;
-			speed_set = SPEED_NORMAL_MMPS;
 			enter(MOT_DRIVING);
 		}
 	}
@@ -227,7 +245,8 @@ LOCAL void step_sequence(INT *tl, INT *tr)
 		*tl = +sgn * SPEED_TURN_MMPS;
 		*tr = -sgn * SPEED_TURN_MMPS;
 	} else {
-		*tl = *tr = SPEED_SLOW_MMPS;
+		sgn = segs[seg_i].val >= 0 ? 1 : -1;
+		*tl = *tr = sgn * segs[seg_i].mmps;
 	}
 }
 
@@ -256,6 +275,7 @@ LOCAL void publish(void)
 	app_state.motor_state = state;
 	app_state.speed_mmps = (speed[0] + speed[1]) / 2;
 	app_state.dist_mm = (UW)(((total_counts / 2) * WHEEL_MM_PER_REV) / ENC_COUNTS_PER_REV);
+	app_state.fwd_mm = (INT)(((enc_cnt[0] + enc_cnt[1]) / 2) * WHEEL_MM_PER_REV / ENC_COUNTS_PER_REV);
 	app_state.enc_left = enc_cnt[0];
 	app_state.enc_right = enc_cnt[1];
 	app_state.cmd_done_seq = done_seq;

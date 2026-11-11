@@ -206,7 +206,11 @@ lb_sim_line_defaults (lb_sim_line_cfg_t * p_cfg)
 
     p_cfg->speed_mmps        = 120.0;   /* Motor: normal speed */
     p_cfg->axle_to_sensor_mm = 80.0;    /* assumed; measure on the car */
+#if (LB_LINE_STRADDLE != 0)
+    p_cfg->sensor_gap_mm     = 30.0;    /* straddle: wider than the line */
+#else
     p_cfg->sensor_gap_mm     = 18.0;    /* about one line width */
+#endif
     p_cfg->spot_mm           = 6.0;
     p_cfg->line_mm           = 18.0;    /* Barcode & Line Specification */
     p_cfg->track_mm          = 130.0;   /* Motor: wheel base */

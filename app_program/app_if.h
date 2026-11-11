@@ -42,6 +42,7 @@ typedef struct {
 #define BC_SEEN			1	/* start bar seen, scanning */
 #define BC_OK			2	/* decoded, cmd is valid */
 #define BC_FAIL			3	/* bad width or timeout */
+#define BC_FIRST		4	/* a code starts: second dark bar close behind the first */
 typedef struct {
 	UB	kind;			/* BC_xxx */
 	UB	cmd;			/* 'A'..'D' when kind == BC_OK */
@@ -95,6 +96,9 @@ typedef struct {
 #define NAV_TURN		3	/* arg = degrees, + = right, - = left */
 #define NAV_BYPASS		4	/* arg = side (OBS_SIDE_xxx), arg2 = width mm */
 #define NAV_RESUME		5	/* back to normal speed */
+#define NAV_MOVE		6	/* arg = mm straight, - = backwards; arg2 =
+					   speed mm/s (0 = SPEED_MOVE_MMPS); ends
+					   in STOPPED like a turn */
 typedef struct {
 	UB	type;			/* NAV_xxx */
 	INT	arg;
@@ -128,6 +132,9 @@ typedef struct {
 #define EVT_STOP		0x02
 #define EVT_RESUME		0x04
 #define EVT_BTN			0x08	/* BTN_START pressed (debounced in ISR) */
+#define EVT_BC_HOLD		0x10	/* Mission -> Barcode: drop the capture and
+					   ignore edges (the car backs up) */
+#define EVT_BC_ARM		0x20	/* Mission -> Barcode: start a fresh capture */
 
 /* =====================================================================
  *  System state  (system statechart, design review section 5)
@@ -190,7 +197,9 @@ typedef struct {
 	/* written by Motor */
 	UB	motor_state;		/* MOT_xxx */
 	INT	speed_mmps;		/* mean of both wheels */
-	UW	dist_mm;
+	UW	dist_mm;		/* path of both wheels, either direction */
+	INT	fwd_mm;			/* signed forward travel: mean of the two
+					   wheels, so steering and pivots add 0 */
 	INT	enc_left;
 	INT	enc_right;
 	UW	cmd_done_seq;		/* +1 each time TURN/BYPASS completes */

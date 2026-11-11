@@ -24,26 +24,64 @@
 /* Timeouts, ms.  Every waiting state has one, so nothing can hang. */
 #define MS_INIT			500	/* let sensors settle (IMU calibrates) */
 #define MS_INIT_NET		20000	/* INIT waits this long for WiFi + MQTT */
-#define MS_BARCODE_SCAN		15000	/* a whole code at 24 mm/s takes about 7 s */
+#define MS_BARCODE_SCAN		40000	/* backstop for the slow pass (BC_READ_MAX_MM is 33 s) */
+#define MS_BC_BACKUP		5000	/* backing up BC_BACKUP_MM at 50 mm/s takes 2 s */
+#define BC_BACKUP_MM		100	/* back up this far when a code starts
+					   (was 50; the barcode sensor sits further
+					   back on the car) [CAL] */
+/* Reverse re-read: when the slow forward read fails, the car reverses at
+   this speed back over the code to where the slow pass began, reading it
+   backwards (the decoder accepts a reversed code). */
+#define BC_REVERSE_MMPS		18
+#define MS_BC_REVERSE		40000	/* up to BC_READ_MAX_MM at 18 mm/s */
+#define BC_SKIP_MARGIN_MM	100	/* after the reverse: ignore barcodes until
+					   this far past where it began */
+/* Slow pass backstop: only for a code the reader never reports on.  A code
+   still being read ends on its own result (BC_OK, or BC_FAIL once the
+   reader has seen 32 mm of white).  The first limit, back-up + 141 mm code
+   + 40 mm = 231 mm, cut a real read off on 2026-11-09: the reader saw a bar
+   or space every 10.5 mm, about twice what 3 mm narrow bars give, so the
+   printed code (or the odometry) is about twice as long. [CAL] */
+#define BC_READ_MAX_MM		600
 #define MS_BARCODE_CMD		5000	/* a 90 or 180 degree turn */
-#define MS_HUMP			3000
-#define MS_OBSTACLE_SCAN	10000	/* stop, sweep five angles, evaluate */
+#define MS_HUMP			10000	/* a hump at 18 mm/s takes several seconds */
+#define MS_OBSTACLE_SCAN	10000	/* stop, sweep five positions (about 2.2 s), evaluate */
 #define BYPASS_TARGET_MS	5000	/* NFR-10: a grade, not a limit */
 #define MS_LINE_REACQUIRE	5000
 #define MS_FAULT_RECOVERY	1000
 #define SEQ_UNSET		0xFFFFFFFFu	/* done_seq_base not captured yet */
 #define LINE_FOUND_TICKS	5	/* consecutive steer messages with the line */
-#define JUNCTION_CREEP_MM	150	/* detection to axle on the junction [CAL] */
+#define JUNCTION_CREEP_MS	1500	/* junction seen -> carry out the move (was 150 mm) [CAL] */
 
 /* Junction moves (TEAM.md 7): which letter means which move.  The mapping
    is meant to come from the PC over MQTT; until that command exists only
-   U-turn = 'F' is set.  0 = no letter mapped to that move. */
+   right turn = 'F' is set (was U-turn until 2026-11-09).  0 = no letter
+   mapped to that move. */
 #define JMOVE_FORWARD		0
 #define JMOVE_UTURN		1
 #define JMOVE_LEFT		2
 #define JMOVE_RIGHT		3
 #define JMOVE_COUNT		4
-#define JMAP_DEFAULT_UTURN	'F'
+#define JMAP_DEFAULT_RIGHT	'F'
+
+/* BARCODE_SCAN phases.  When a code starts (BC_FIRST: two bars close
+   together) the car backs up BC_BACKUP_MM with the reader on hold, then
+   crosses the code at the slow speed with a fresh capture, then returns to
+   the normal speed on the result, or after BC_READ_MAX_MM at the latest.
+   A failed forward read is tried once more in reverse (BCP_REVERSE). */
+#define BCP_READ		0	/* following the line over the code */
+#define BCP_BACKUP		1	/* backing up, reader on hold */
+#define BCP_REVERSE		2	/* forward read failed: reversing, reading again */
+
+/* Why the last BARCODE_SCAN ended (shown on the dashboard) */
+#define BCX_NONE		0	/* no pass yet */
+#define BCX_DECODED		1	/* BC_OK from the reader */
+#define BCX_FAILED		2	/* BC_FAIL from the reader */
+#define BCX_DISTANCE		3	/* Mission: slow pass longer than BC_READ_MAX_MM */
+#define BCX_TIMEOUT		4	/* Mission: MS_BARCODE_SCAN */
+#define BCX_BACKUP_FAULT	5	/* Mission: the back-up never finished */
+#define BCX_STOPPED		6	/* button, E_STOP, fault: left the state */
+#define BCX_DECODED_REV		7	/* forward read failed, reverse read decoded */
 
 /* What the caller must do after an event.  Actions accumulate; the caller
    clears the struct before feeding a batch of events. */
@@ -77,10 +115,21 @@ typedef struct {
 	INT	bypass_ms;		/* duration of the last bypass */
 	UB	bypass_late;		/* 1 = last bypass took over BYPASS_TARGET_MS */
 	UB	creeping;		/* junction seen: driving straight to it */
-	UB	creep_primed;		/* creep_base_mm holds the start distance */
-	UW	creep_base_mm;		/* distance when the creep began */
+	INT	creep_ms;		/* time since the junction was seen */
 	UB	move_map[JMOVE_COUNT];	/* letter for each JMOVE_xxx, 0 = none */
 	UB	stop_at_barcode;	/* floor test: stop once a barcode is read, set by the task */
+	UB	straight_only;		/* obstacle floor test: ignore the line, drive straight, set by the task */
+	UB	bc_backup;		/* 1 = back up and read slowly on the first bar */
+	UB	bc_phase;		/* BARCODE_SCAN: BCP_xxx */
+	UB	bc_slow;		/* this read slowed the car: resume after it */
+	UB	bc_read_primed;		/* bc_read_base_mm holds the slow-pass start */
+	UB	bc_exit;		/* why the last barcode pass ended: BCX_xxx */
+	INT	bc_read_base_mm;	/* forward travel (fwd_mm) at that point */
+	INT	fwd_mm;			/* latest forward travel (mission_on_forward) */
+	UB	bc_retried;		/* this pass already reversed once */
+	INT	bc_rev_start_mm;	/* fwd_mm where the reverse began */
+	UB	bc_skip;		/* ignore barcodes until bc_skip_until_mm */
+	INT	bc_skip_until_mm;
 } MISSION;
 
 IMPORT void mission_init(MISSION *m);
@@ -98,9 +147,8 @@ IMPORT void mission_on_obs(MISSION *m, const MSG_OBS *o, MISSION_ACT *a);
 IMPORT void mission_on_tick(MISSION *m, INT dt_ms, UB motor_state,
 			    UW motor_done_seq, MISSION_ACT *a);
 
-/* Called every tick with the distance read from app_state.  Ends a junction
-   creep once the car has driven JUNCTION_CREEP_MM. */
-IMPORT void mission_on_distance(MISSION *m, UW dist_mm, MISSION_ACT *a);
+/* Signed forward travel (app_state.fwd_mm): ends a slow barcode pass */
+IMPORT void mission_on_forward(MISSION *m, INT fwd_mm, MISSION_ACT *a);
 
 /* TEAM.md 7: the turn for a stored letter at a cross junction, in degrees
    (+ right): forward 0, U-turn 180, left -90, right +90.  A letter that is

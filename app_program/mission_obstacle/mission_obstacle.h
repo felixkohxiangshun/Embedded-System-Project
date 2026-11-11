@@ -50,13 +50,48 @@ IMPORT ID	flg_echo;	/* private: echo ISR -> scan_task, bit ECHO_FLG_DONE */
 
 IMPORT volatile UB  s5_scan_state;
 IMPORT volatile INT s5_scan_last_mm;
+/* last sweep, for the dashboard: readings in mm (0 = no echo) and result */
+IMPORT volatile INT s5_scan_mm[5];	/* far left .. far right (SCAN_xxx order) */
+IMPORT volatile UB  s5_scan_side;	/* SCAN_SIDE_xxx */
+#define SCAN_SIDE_NONE		0	/* no sweep yet */
+#define SCAN_SIDE_LEFT		1
+#define SCAN_SIDE_RIGHT		2
+#define SCAN_SIDE_FAIL		3	/* no centre echo or no room either side */
 IMPORT volatile UW  s5_mission_ticks;
 IMPORT volatile UB  s5_mission_state;
+IMPORT volatile UB  s5_bc_exit;		/* BCX_xxx (mission_logic.h) */
 
 /* drv_ultra.c: only scan_task calls these */
 IMPORT void ultra_hw_init(void);
 IMPORT INT  ultra_ping_mm(void);
-IMPORT void servo_set_deg(INT deg);
+IMPORT INT  ultra_ping_raw_mm(void);	/* sensor test: no limits */
+IMPORT void servo_set_us(INT us);
+
+/* 1: servo calibration.  The car never drives: GP20 moves the servo -10 us,
+   GP21 +10 us (hold for repeat), and the pulse width in us shows
+   on the dashboard where the ultrasonic reading normally is.  Restore 0. */
+#ifndef S5_TEST_SERVO_CAL
+#define S5_TEST_SERVO_CAL	0
+#endif
+
+/* 1: stationary obstacle test.  The car never drives and GP20 does nothing.
+   The ultrasonic pings all the time; an object within 30 cm (two readings
+   in a row) runs the left / centre / right sweep, and the readings and the
+   chosen side go to the dashboard.  The sweep repeats every few seconds
+   while the object stays there.  Restore 0. */
+#ifndef S5_TEST_STATIONARY
+#define S5_TEST_STATIONARY	0
+#endif
+
+/* 1: ultrasonic sensor test.  The car never drives.  The sensor pings
+   every 100 ms at one servo position and the distance goes to the dashboard
+   ("Ultrasonic now", and the sweep field of that position) WITHOUT the
+   40 mm / 2 m limits, so self-echoes show too.  GP20 moves one position
+   left, GP21 one right (far left .. far right); it starts at centre.
+   Restore 0. */
+#ifndef S5_TEST_ULTRA
+#define S5_TEST_ULTRA		0
+#endif
 
 IMPORT void mission_task(INT stacd, void *exinf);
 IMPORT void scan_task(INT stacd, void *exinf);

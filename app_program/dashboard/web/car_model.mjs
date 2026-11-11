@@ -11,13 +11,17 @@ export const TOPICS = Object.freeze({
   command: 'csc11/dev/car/cmd',
 });
 export const TELEM_BYTES = 11;
-export const DEBUG_BYTES = 14;
+export const DEBUG_BYTES = 22;
 export const CHAR_NONE = 31;
 
 export const SYS_STATES = ['INIT', 'IDLE', 'LINE_FOLLOW', 'BARCODE_SCAN', 'BARCODE_CMD',
   'HUMP_TRAVERSE', 'OBSTACLE_SCAN', 'OBSTACLE_BYPASS', 'LINE_REACQUIRE', 'FAULT_RECOVERY', 'E_STOP'];
 export const MOTOR_STATES = ['STOPPED', 'DRIVING', 'TURNING', 'BYPASS', 'ENCODER_FAULT'];
 export const LINE_MODES = ['TRACK', 'COAST', 'SWEEP'];
+export const SCAN_STATES = ['MONITORING', 'OBSTACLE_DETECTED', 'MOVE_SERVO', 'MEASURE', 'EVALUATE', 'POST_RESULT', 'SCAN_FAULT'];
+export const SCAN_SIDES = ['none yet', 'go LEFT', 'go RIGHT', 'no way round'];
+export const BC_EXITS = ['none yet', 'decoded', 'failed (forward and reverse)', 'distance limit',
+  'time limit', 'back-up / reverse never finished', 'stopped (button / fault)', 'decoded on the reverse pass'];
 export const BC_RESULTS = ['OK', 'NULL', 'COUNT (not 30 edges)', 'WIDTH (no clear narrow/wide)', 'FRAME (start/stop not *)',
   'GAP (character gap wrong)', 'SPEED (speed changed)', 'COMMAND (not a letter)', 'REVERSED (refused)',
   'SHORT (under 6 edges, ignored)', '', '', '', '', '', 'none yet'];
@@ -84,7 +88,15 @@ export function decodeDebug(bytes) {
   const motor = r.get(7);
   const bcStatus = r.get(15);
   const bcCount = r.get(63);
+  const scanState = r.get(7);
+  // far left, near left, centre, near right, far right
+  const scanMm = [r.get(4095), r.get(4095), r.get(4095), r.get(4095), r.get(4095)].map(v => (v === 0 ? null : v));
+  const scanSide = r.get(3);
+  const bcExit = r.get(7);
   return {
+    bcExit, bcExitName: stateName(BC_EXITS, bcExit),
+    scanState, scanStateName: stateName(SCAN_STATES, scanState), scanMm,
+    scanSide, scanSideName: SCAN_SIDES[scanSide],
     bcStatus, bcResult: stateName(BC_RESULTS, bcStatus), bcCount,
     seq, darkC, darkR, err, steer, mode, modeName: stateName(LINE_MODES, mode),
     bcEdges, bcOk, bcFail, bcLast: charName(bcLast), ultraMm: ultraMm === 0 ? null : ultraMm,

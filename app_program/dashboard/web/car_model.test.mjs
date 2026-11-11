@@ -40,9 +40,10 @@ test('telemetry: negative speed and wrong length', () => {
   assert.throws(() => decodeTelemetry(new Uint8Array(10)));
 });
 
-test('debug: signed fields and counters round-trip, 14 bytes', () => {
+test('debug: signed fields and counters round-trip, 22 bytes', () => {
   const frame = pack([[200, 255], [600, 1023], [480, 1023], [-120 + 512, 1023], [-700 + 1024, 2047],
-    [2, 3], [60, 255], [1, 255], [3, 255], [1, 31], [289, 4095], [1, 7], [6, 15], [30, 63]], 14);
+    [2, 3], [60, 255], [1, 255], [3, 255], [1, 31], [289, 4095], [1, 7], [6, 15], [30, 63],
+    [3, 7], [1200, 4095], [900, 4095], [250, 4095], [700, 4095], [0, 4095], [2, 3], [3, 7]], 22);
   const g = decodeDebug(frame);
   assert.deepEqual([g.darkC, g.darkR, g.err, g.steer], [600, 480, -120, -700]);
   assert.equal(g.modeName, 'SWEEP');
@@ -51,6 +52,10 @@ test('debug: signed fields and counters round-trip, 14 bytes', () => {
   assert.equal(g.motorName, 'DRIVING');
   assert.equal(g.bcResult, 'SPEED (speed changed)');
   assert.equal(g.bcCount, 30);
+  assert.equal(g.scanStateName, 'MEASURE');
+  assert.deepEqual(g.scanMm, [1200, 900, 250, 700, null]);
+  assert.equal(g.scanSideName, 'go RIGHT');
+  assert.equal(g.bcExitName, 'distance limit');
 });
 
 test('heartbeat and sequence gaps', () => {

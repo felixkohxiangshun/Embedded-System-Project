@@ -45,7 +45,7 @@ IMPORT UB   dash_parse_cmd(const char *text, INT len);
    fields in the order listed, starting at bit 0 of byte 0 (least
    significant bit first).  Signed fields are sent with an offset. */
 #define DASH_TELEM_BYTES	11	/* 81 bits of fields, 7 spare */
-#define DASH_DEBUG_BYTES	14	/* 105 bits of fields, 7 spare */
+#define DASH_DEBUG_BYTES	22	/* 173 bits of fields, 3 spare */
 #define DASH_HB_BYTES		1	/* system state only */
 #define DASH_CHAR_NONE		31	/* character code: A..Z = 0..25 */
 
@@ -64,6 +64,10 @@ typedef struct {
 	UB	motor_state;	/* MOT_xxx */
 	UB	bc_status;	/* last decode result, 0 = OK (bc_decode_status_t) */
 	UW	bc_count;	/* edges in the last capture (sent up to 63) */
+	UB	scan_state;	/* SCAN_xxx (task_scan.c), 0..6 */
+	INT	scan_mm[5];	/* last sweep, far left .. far right, 0 = no echo */
+	UB	scan_side;	/* 0 none yet, 1 left, 2 right, 3 no way round */
+	UB	bc_exit;	/* why the last barcode pass ended, BCX_xxx 0..7 */
 } DASH_DEBUG;
 
 IMPORT UB   dash_char_code(UB ch);

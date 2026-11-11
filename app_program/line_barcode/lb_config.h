@@ -74,7 +74,10 @@
 /* Digital mode: a DO change counts only once the level has held this many
  * microseconds (comparator chatter is shorter).  Narrow elements at
  * driving speed were measured at 1.3 to 5 ms, so this must stay far below
- * that.  [CAL] */
+ * that.  [CAL]  (2 ms was tried on 2026-11-09 against chatter at the slow
+ * reading speed, but the sensor sees a 3 mm bar as dark for only 0.4 to 8 ms,
+ * so it would delete real narrow bars.  LB_BC_MAX_EDGES gives chatter room
+ * instead.) */
 #define LB_BC_GPIO_DEBOUNCE_US      200u
 
 /* 1 kHz sampler: conversions per sensor that are averaged.  One extra
@@ -91,7 +94,15 @@
  * 2. Line sensor calibration (dark scale, counts)  [CAL]
  * ---------------------------------------------------------------------
  * white = sensor centred over bare paper, black = sensor centred over the
- * fresh black line.  The span must be at least LB_CAL_SPAN_MIN counts. */
+ * fresh black line.  The span must be at least LB_CAL_SPAN_MIN counts.
+ * History: 400 / 3200 for both sensors (original defaults, restored
+ * 2026-11-09 before recalibrating); 0 / 1720 and 0 / 3218 (commit 8d5a81d,
+ * 2026-11-07); measured 148 / 2172 and 187 / 3296 (2026-11-09, made the
+ * steering jerk); 160 / 2360 and 160 / 3360 (2026-11-09, read off the
+ * dashboard).  Back to 0 / 1720 and 0 / 3218 (2026-11-09): with the raw
+ * readings of this track it gives the widest gap, white 93 / 49 and black
+ * 1000 / 1000, and 70 % faded ink still reads 988 / 745 (the others give
+ * 464 to 714 there). */
 #define LB_WHITE_CENTER             0
 #define LB_BLACK_CENTER             1720
 #define LB_WHITE_RIGHT              0
@@ -116,16 +127,104 @@
  * exactly where we want it: midway between the two sensors. */
 #define LB_LINE_TARGET              (-500)
 
+/* Edge mode error formula.
+ * 1 = difference (2026-11-09): err = (right - centre) / 2, -500..+500.  A
+ *     sensor that sees only a little of the line asks for only a little
+ *     steering.  The share formula below jumped to nearly full scale as soon
+ *     as one sensor was on white (centre 20, right 350 gave err +450, steer
+ *     +700), which made the car zigzag when the sensors are further apart
+ *     than the line.
+ * 0 = share: err from centre / (centre + right) against LB_LINE_TARGET;
+ *     independent of ink strength, but all-or-nothing with one sensor
+ *     white. */
+#ifndef LB_LINE_ERR_DIFF
+#define LB_LINE_ERR_DIFF            1
+#endif
+/* 1 = straddle mode (2026-11-09): the line runs BETWEEN the two sensors and
+ * both normally see white.  A sensor that sees black means the line has
+ * drifted under it, so the car steers toward that side to put the line
+ * back between them:  err = (right - centre) / 2,  -500 (centre black,
+ * steer left) .. +500 (right black, steer right); both white or both black
+ * (a junction) = 0, straight on.  Both white is normal here, so the line is
+ * never reported lost and there is no line-lost fault.  The sensors must be
+ * further apart than the 18 mm line.
+ * 0 = edge mode: each sensor half on the line, steered on the share of
+ * darkness each one sees (LB_LINE_TARGET). */
+/* 2026-11-09: 1 -> 0 -> 1.  Edge mode needs each sensor half on the line,
+ * which is hard to set up with the sensors pointing straight down.  Known
+ * gap: straddle mode cannot yet reacquire the line after an obstacle bypass
+ * (white is "on the line", so Mission's LINE_REACQUIRE would think the line
+ * is found at once); fix that before obstacle avoidance is switched on. */
+#ifndef LB_LINE_STRADDLE
+#define LB_LINE_STRADDLE            1
+#endif
+
+/* Straddle mode: getting the line back after it slid out past a sensor.
+ * With both sensors white the car cannot tell "line centred" from "line
+ * gone out to one side".  But the line (18 mm) is wider than the spot
+ * (6 mm), so it can only cross a sensor completely by covering it fully on
+ * the way.  So when a black reading ends:
+ *  - its peak stayed below FULL: the line came back inside -> straight on;
+ *  - its peak reached FULL: it may have gone out that side -> steer toward
+ *    that side with SEEK_ERR (a fake error) until a sensor sees black again.
+ * If nothing black turns up for SEEK_MS the line is reported lost, so the
+ * line search runs and LB_TIMEOUT_MS later Mission stops the car.
+ * Faded ink is handled by the calibration, not here: LB_BLACK_xxx is
+ * measured on the faded line, so it reads about 1000 and stays clearly
+ * apart from white.  (SAT 500 and junctions at 400 were tried on
+ * 2026-11-09 to follow faded ink; they squeezed black and white together
+ * and made the car confuse them.)  SAT stays at 1000 = no rescaling. [CAL] */
+#ifndef LB_STRADDLE_SAT
+#define LB_STRADDLE_SAT             1000    /* reads as fully black */
+#endif
+#ifndef LB_STRADDLE_BLACK_MIN
+#define LB_STRADDLE_BLACK_MIN       300     /* darkness that counts as black */
+#endif
+#ifndef LB_STRADDLE_FULL
+#define LB_STRADDLE_FULL            600     /* sensor over the line */
+#endif
+#ifndef LB_STRADDLE_SEEK_ERR
+#define LB_STRADDLE_SEEK_ERR        100     /* of 500: a gentle pull back */
+#endif
+#ifndef LB_STRADDLE_SEEK_MS
+#define LB_STRADDLE_SEEK_MS         1500
+#endif
+
 /* PD gains in 1/256 units: steer = (KP * err + KD * (err - previous)) / 256.
  * err is -500..+500.  [CAL] Tune on the track: raise KP until the car just
  * starts to wobble, back off 30 percent, then add KD to damp the wobble. */
 #define LB_GAIN_SCALE               256
+#ifndef LB_KP
+#if (LB_LINE_STRADDLE != 0)
 #define LB_KP                       400
+#else
+#define LB_KP                       600     /* 400 with the share error */
+#endif
+#endif
+#ifndef LB_KD
+#if (LB_LINE_STRADDLE != 0)
+#define LB_KD                       100
+#else
 #define LB_KD                       300
+#endif
+#endif
+
+/* Straddle mode gains (KP 400, KD 100, slew 40, LB_STRADDLE_SEEK_ERR 150),
+ * 2026-11-09: tuned in the simulator at 60 mm/s with sluggish motors
+ * (lag 150 ms, delay 50 ms) for a smooth drive.  Against KP 600 / KD 300 /
+ * slew 100 / seek 300 the steering moves about a fifth as much on bends,
+ * with a third of the left-right reversals, and a 100 mm radius bend is
+ * still followed (KP 300 or slew 30 lose it). */
 
 /* Largest change of the steering output per tick.  Stops the wheels being
  * jerked when the error jumps (dirt, a junction edge, re-acquiring). */
+#ifndef LB_STEER_SLEW_MAX
+#if (LB_LINE_STRADDLE != 0)
+#define LB_STEER_SLEW_MAX           40
+#else
 #define LB_STEER_SLEW_MAX           100
+#endif
+#endif
 
 /* The steering output is also kept as a slow average ("steer memory"):
  * mem = mem + (steer - mem) / this.  It is the value that is held while
@@ -325,9 +424,28 @@
 #define LB_BC_SILENCE_FACTOR        4u
 #define LB_BC_SILENCE_MAX_MS        6000u
 
+/* A capture ends once the sensor has seen white (no edge after a light
+ * edge) for this long: the code is over.  Replaces the 20 / 32 mm travel
+ * limits, which ended slow reads part way through the code (2026-11-09).
+ * While the sensor sits on a dark bar the time limits above still apply. */
+#define LB_BC_WHITE_EXIT_MS         2500u
+
+/* BC_FIRST (Mission backs up and reads the code slowly) is sent when the
+ * SECOND dark bar of a capture starts within this much travel after the
+ * first.  A junction line is one 18 mm dark band with nothing after it, so
+ * it never qualifies.  In the '*' guard the second bar starts 12 mm after
+ * the first (6 mm when read backwards); the rest is margin. [CAL]
+ * A dark bar that comes later than this starts the capture again, so a
+ * junction just before a code does not spoil the code. */
+#define LB_BC_FIRST_WINDOW_MM       40u
+
 /* Most edges remembered for one capture (30 are a full code; the rest is
- * room for noise edges in front of or inside the code). */
-#define LB_BC_MAX_EDGES             40u
+ * room for noise edges in front of or inside the code).  A full buffer
+ * ends the capture, so 40 cut slow reads short when the sensor chattered;
+ * 64 leaves room for 34 extra edges (the decoder merges glitches).  Two
+ * arrays of this size live on the 2 KB barcode_task stack while decoding,
+ * so do not raise it much further. */
+#define LB_BC_MAX_EDGES             64u
 
 /* Mission is told "barcode seen" only after this many edges were collected,
  * so one speck of dust or the edge of the line does not disturb it. */

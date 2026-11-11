@@ -317,6 +317,14 @@ EXPORT INT dash_pack_debug(const DASH_DEBUG *g, UB seq, UB *buf, INT size)
 	ok &= put(buf, size, &cur, g->motor_state & 7u, 7);
 	ok &= put(buf, size, &cur, g->bc_status & 15u, 15);
 	ok &= put(buf, size, &cur, clampi((INT)g->bc_count, 0, 63), 63);
+	ok &= put(buf, size, &cur, g->scan_state & 7u, 7);
+	ok &= put(buf, size, &cur, clampi(g->scan_mm[0], 0, 4095), 4095);
+	ok &= put(buf, size, &cur, clampi(g->scan_mm[1], 0, 4095), 4095);
+	ok &= put(buf, size, &cur, clampi(g->scan_mm[2], 0, 4095), 4095);
+	ok &= put(buf, size, &cur, clampi(g->scan_mm[3], 0, 4095), 4095);
+	ok &= put(buf, size, &cur, clampi(g->scan_mm[4], 0, 4095), 4095);
+	ok &= put(buf, size, &cur, g->scan_side & 3u, 3);
+	ok &= put(buf, size, &cur, g->bc_exit & 7u, 7);
 	return ok ? DASH_DEBUG_BYTES : -1;
 }
 

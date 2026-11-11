@@ -145,9 +145,10 @@ int main(void)
 		MSG_TELEM t;
 		DASH_DEBUG g;
 		UB f[DASH_DEBUG_BYTES];
-		uint32_t cur = 0, v[14];
+		uint32_t cur = 0, v[22];
 		static const uint32_t tmax[12] = { 255, 15, 511, 65535, 359, 1, 255, 31, 31, 127, 1, 255 };
-		static const uint32_t gmax[14] = { 255, 1023, 1023, 1023, 2047, 3, 255, 255, 255, 31, 4095, 7, 15, 63 };
+		static const uint32_t gmax[22] = { 255, 1023, 1023, 1023, 2047, 3, 255, 255, 255, 31, 4095, 7, 15, 63,
+						   7, 4095, 4095, 4095, 4095, 4095, 3, 7 };
 		int i, ok = 1;
 
 		memset(&t, 0, sizeof t);
@@ -170,13 +171,16 @@ int main(void)
 		g.dark_c = 600; g.dark_r = 1500; g.err = -700; g.steer = 999; g.mode = 2;
 		g.bc_edges = 300; g.bc_ok = 1; g.bc_fail = 3; g.bc_last = 'B'; g.ultra_mm = 289; g.motor_state = MOT_DRIVING;
 		g.bc_status = 6; g.bc_count = 90;
+		g.scan_state = 3; g.scan_mm[0] = 1200; g.scan_mm[1] = 900; g.scan_mm[2] = 250; g.scan_mm[3] = 700;
+		g.scan_mm[4] = 9000; g.scan_side = 2; g.bc_exit = 3;
 		cur = 0; ok = 1;
 		CHECK_T("S4-U12a", dash_pack_debug(&g, 200, f, DASH_DEBUG_BYTES) == DASH_DEBUG_BYTES,
-			"debug frame packs into 14 bytes");
-		for (i = 0; i < 14; i++) {
+			"debug frame packs into 22 bytes");
+		for (i = 0; i < 22; i++) {
 			ok &= protocol_bits_get(f, DASH_DEBUG_BYTES, &cur, gmax[i], &v[i]);
 		}
-		CHECK_T("S4-U12b", ok && cur == 105 && v[12] == 6 && v[13] == 63 && v[0] == 200 && v[1] == 600 && v[2] == 1023 && (int)v[3] - 512 == -512 &&
+		CHECK_T("S4-U12b", ok && cur == 173 && v[21] == 3 && v[14] == 3 && v[15] == 1200 && v[16] == 900 &&
+			v[17] == 250 && v[18] == 700 && v[19] == 4095 && v[20] == 2 && v[12] == 6 && v[13] == 63 && v[0] == 200 && v[1] == 600 && v[2] == 1023 && (int)v[3] - 512 == -512 &&
 			(int)v[4] - 1024 == 999 && v[5] == 2 && v[6] == 300 % 256 && v[7] == 1 && v[8] == 3 &&
 			v[9] == 1 && v[10] == 289 && v[11] == MOT_DRIVING,
 			"every debug field unpacks; out-of-range values clamped");
@@ -266,17 +270,17 @@ int main(void)
 			a.nav[0].arg == 0, "side branch: drives straight on");
 		a = clear_act(); s.flags = STEER_F_LOST | STEER_F_TIMEOUT; mission_on_steer(&m, &s, &a);
 		CHECK_T("S5-H05b", m.state == SYS_LINE_FOLLOW && a.nav[0].arg == 0, "no line ahead: no fault during the creep");
-		a = clear_act(); mission_on_distance(&m, 1000, &a);
-		mission_on_distance(&m, 1000 + JUNCTION_CREEP_MM - 1, &a);
-		CHECK_T("S5-H05c", m.state == SYS_LINE_FOLLOW && !(a.evt_flags & EVT_STOP), "still driving 1 mm short");
-		mission_on_distance(&m, 1000 + JUNCTION_CREEP_MM, &a);
+		a = clear_act(); mission_on_tick(&m, JUNCTION_CREEP_MS - 5, MOT_DRIVING, 0, &a);
+		CHECK_T("S5-H05c", m.state == SYS_LINE_FOLLOW && !(a.evt_flags & EVT_STOP) && m.creeping,
+			"still driving straight 5 ms short of 1.5 s");
+		mission_on_tick(&m, 5, MOT_DRIVING, 0, &a);
 		CHECK_T("S5-H05d", m.state == SYS_LINE_FOLLOW && a.n_nav == 0 && !m.creeping,
 			"no letter stored: straight over the junction, no turn");
 		a = clear_act(); s.steer = 200; s.flags = 0; mission_on_steer(&m, &s, &a);
 		CHECK_T("S5-H05e", a.n_nav == 1 && a.nav[0].type == NAV_STEER && a.nav[0].arg == 200,
 			"after the junction: line following again");
 		a = clear_act(); mission_on_button(&m, &a);	/* back to IDLE for the tests below */
-		/* S5-U20: 'F' stored -> U-turn at the next junction, then drive on */
+		/* S5-U20: 'F' stored -> right turn at the next junction, then drive on */
 		{
 			MISSION   mj;
 			MSG_BCCMD bj;
@@ -286,28 +290,226 @@ int main(void)
 			CHECK_T("S5-U20a", mj.state == SYS_LINE_FOLLOW && a.n_nav == 0 && mj.stored_char == 'F',
 				"barcode F: stored, no turn yet, keeps following the line");
 			s.steer = 0; s.flags = STEER_F_JUNCTION; mission_on_steer(&mj, &s, &a);
-			mission_on_distance(&mj, 500, &a);
-			a = clear_act(); mission_on_distance(&mj, 500 + JUNCTION_CREEP_MM, &a);
+			a = clear_act(); mission_on_tick(&mj, JUNCTION_CREEP_MS, MOT_DRIVING, 0, &a);
 			CHECK_T("S5-U20b", mj.state == SYS_BARCODE_CMD && a.n_nav == 1 && a.nav[0].type == NAV_TURN &&
-				a.nav[0].arg == 180 && mj.stored_char == 0,
-				"axle on the junction: U-turn sent, stored letter cleared");
+				a.nav[0].arg == 90 && mj.stored_char == 0,
+				"1.5 s after the junction: right turn sent, stored letter cleared");
 			a = clear_act(); mission_on_tick(&mj, 10, MOT_TURNING, 7, &a);
 			mission_on_tick(&mj, 10, MOT_TURNING, 7, &a);
 			CHECK_T("S5-U20c", mj.state == SYS_BARCODE_CMD && a.evt_flags == 0, "still turning");
 			mission_on_tick(&mj, 10, MOT_STOPPED, 8, &a);
 			CHECK_T("S5-U20d", mj.state == SYS_LINE_FOLLOW && (a.evt_flags & EVT_RESUME) &&
-				!(a.evt_flags & EVT_STOP), "U-turn done: line following continues");
+				!(a.evt_flags & EVT_STOP), "turn done: line following continues");
 			a = clear_act(); s.flags = STEER_F_JUNCTION; mission_on_steer(&mj, &s, &a);
-			mission_on_distance(&mj, 2000, &a);
-			a = clear_act(); mission_on_distance(&mj, 2000 + JUNCTION_CREEP_MM, &a);
+			a = clear_act(); mission_on_tick(&mj, JUNCTION_CREEP_MS, MOT_DRIVING, 8, &a);
 			CHECK_T("S5-U20e", mj.state == SYS_LINE_FOLLOW && a.n_nav == 0,
 				"same junction on the way back: letter used up, straight over");
 			/* S5-U21: an unmapped letter goes forward; left/right when mapped */
 			CHECK_T("S5-U21a", mission_junction_deg(&mj, 'A') == 0 && mission_junction_deg(&mj, 0) == 0 &&
-				mission_junction_deg(&mj, 'F') == 180, "only F is mapped (U-turn); others go forward");
+				mission_junction_deg(&mj, 'F') == 90, "only F is mapped (right turn); others go forward");
 			mj.move_map[JMOVE_LEFT] = 'L'; mj.move_map[JMOVE_RIGHT] = 'R';
 			CHECK_T("S5-U21b", mission_junction_deg(&mj, 'L') == -90 && mission_junction_deg(&mj, 'R') == 90,
 				"left and right follow the mapping table");
+			s.flags = 0;
+		}
+		/* S5-H12: integrated run, Mission calling Motor, Line, Barcode and IMU */
+		{
+			MISSION     mi;
+			MSG_BCCMD   bi;
+			MSG_TERRAIN ti;
+
+			mission_init(&mi); mi.net_online = 1; a = clear_act();
+			mission_on_tick(&mi, MS_INIT, MOT_STOPPED, 0, &a);
+			mission_on_button(&mi, &a);
+			CHECK_T("S5-H12a", mi.state == SYS_LINE_FOLLOW && (a.evt_flags & EVT_START) &&
+				a.nav[0].type == NAV_RESUME, "INIT -> IDLE -> GP20: line following, Motor started");
+			a = clear_act(); s.flags = 0; s.steer = 250; mission_on_steer(&mi, &s, &a);
+			CHECK_T("S5-H12b", a.n_nav == 1 && a.nav[0].type == NAV_STEER && a.nav[0].arg == 250,
+				"Line steering passed to Motor");
+			a = clear_act(); bi.kind = BC_SEEN; bi.cmd = 0; mission_on_barcode(&mi, &bi, &a);
+			mission_on_steer(&mi, &s, &a);
+			CHECK_T("S5-H12c", mi.state == SYS_BARCODE_SCAN && a.n_nav == 1 && a.nav[0].arg == 250,
+				"barcode seen: keeps following the line over it");
+			a = clear_act(); bi.kind = BC_OK; bi.cmd = 'F'; mission_on_barcode(&mi, &bi, &a);
+			CHECK_T("S5-H12d", mi.state == SYS_LINE_FOLLOW && mi.stored_char == 'F' && a.n_nav == 0,
+				"F decoded: stored for the junction, no turn yet");
+			a = clear_act(); memset(&ti, 0, sizeof ti); ti.kind = TERR_HUMP_START; mission_on_terrain(&mi, &ti, &a);
+			mission_on_steer(&mi, &s, &a);
+			CHECK_T("S5-H12e", mi.state == SYS_HUMP_TRAVERSE && a.nav[0].type == NAV_SLOW &&
+				a.nav[1].type == NAV_STEER && a.nav[1].arg == 250, "IMU hump: slow down, still follow the line");
+			a = clear_act(); mission_on_tick(&mi, 8000, MOT_DRIVING, 0, &a);
+			CHECK_T("S5-H12f", mi.state == SYS_HUMP_TRAVERSE, "a slow 8 s hump crossing is not cut short");
+			ti.kind = TERR_HUMP_DONE; ti.height_mm = 20; ti.max_mm = 22; mission_on_terrain(&mi, &ti, &a);
+			CHECK_T("S5-H12g", mi.state == SYS_LINE_FOLLOW && a.nav[0].type == NAV_RESUME &&
+				mi.hump_max_mm == 22 && mi.stored_char == 'F', "hump done: normal speed, height kept, letter kept");
+			a = clear_act(); ti.kind = TERR_FAULT; mission_on_terrain(&mi, &ti, &a);
+			mission_on_steer(&mi, &s, &a);
+			CHECK_T("S5-H12h", mi.state == SYS_LINE_FOLLOW && (mi.fault_flags & FAULT_IMU) &&
+				!(a.evt_flags & EVT_STOP) && a.nav[0].type == NAV_STEER, "IMU fault: reported, car keeps driving");
+			a = clear_act(); s.flags = STEER_F_JUNCTION; mission_on_steer(&mi, &s, &a);
+			mission_on_tick(&mi, JUNCTION_CREEP_MS, MOT_DRIVING, 0, &a);
+			CHECK_T("S5-H12i", mi.state == SYS_BARCODE_CMD && a.nav[a.n_nav - 1].type == NAV_TURN &&
+				a.nav[a.n_nav - 1].arg == 90 && mi.stored_char == 0, "cross junction: right turn for the stored F");
+			a = clear_act(); mission_on_tick(&mi, 5, MOT_TURNING, 11, &a);
+			mission_on_tick(&mi, 5, MOT_STOPPED, 12, &a);
+			s.flags = 0; mission_on_steer(&mi, &s, &a);
+			CHECK_T("S5-H12j", mi.state == SYS_LINE_FOLLOW && (a.evt_flags & EVT_RESUME) &&
+				a.nav[a.n_nav - 1].type == NAV_STEER && a.nav[a.n_nav - 1].arg == 250,
+				"turn done: back to following the line");
+			a = clear_act(); mission_on_button(&mi, &a);
+			CHECK_T("S5-H12k", mi.state == SYS_IDLE && (a.evt_flags & EVT_STOP), "GP20 again: stop");
+			s.flags = 0;
+		}
+		/* S5-H13: first bar -> back up 2 cm -> read slowly -> normal speed */
+		{
+			MISSION   mr;
+			MSG_BCCMD br;
+
+			mission_init(&mr); mr.state = SYS_LINE_FOLLOW; a = clear_act();
+			br.kind = BC_FIRST; br.cmd = 0; mission_on_barcode(&mr, &br, &a);
+			CHECK_T("S5-H13a", mr.state == SYS_BARCODE_SCAN && mr.bc_phase == BCP_BACKUP &&
+				(a.evt_flags & EVT_BC_HOLD) && a.n_nav == 1 && a.nav[0].type == NAV_MOVE &&
+				a.nav[0].arg == -BC_BACKUP_MM, "code starts: reader on hold, back up 10 cm");
+			a = clear_act(); s.steer = 400; s.flags = STEER_F_JUNCTION | STEER_F_LOST | STEER_F_TIMEOUT;
+			mission_on_steer(&mr, &s, &a);
+			CHECK_T("S5-H13b", a.n_nav == 0 && !mr.creeping && mr.state == SYS_BARCODE_SCAN &&
+				!(a.evt_flags & EVT_STOP), "backing up: no steering, no junction, no line-lost fault");
+			a = clear_act(); mission_on_tick(&mr, 5, MOT_TURNING, 3, &a);
+			mission_on_tick(&mr, 5, MOT_TURNING, 3, &a);
+			CHECK_T("S5-H13c", mr.bc_phase == BCP_BACKUP && a.evt_flags == 0, "still backing up");
+			mission_on_tick(&mr, 5, MOT_STOPPED, 4, &a);
+			CHECK_T("S5-H13d", mr.state == SYS_BARCODE_SCAN && mr.bc_phase == BCP_READ &&
+				(a.evt_flags & EVT_RESUME) && (a.evt_flags & EVT_BC_ARM) && a.n_nav == 2 &&
+				a.nav[0].type == NAV_SLOW && a.nav[1].type == NAV_STEER,
+				"backed up: fresh capture, forward at the slow speed");
+			a = clear_act(); mission_on_barcode(&mr, &br, &a);
+			CHECK_T("S5-H13e", mr.bc_phase == BCP_READ && a.n_nav == 0 && a.evt_flags == 0,
+				"first bar again on the slow pass: no second back-up");
+			a = clear_act(); s.steer = 300; s.flags = 0; mission_on_steer(&mr, &s, &a);
+			CHECK_T("S5-H13f", a.n_nav == 1 && a.nav[0].type == NAV_STEER && a.nav[0].arg == 300,
+				"slow pass follows the line");
+			a = clear_act(); br.kind = BC_SEEN; mission_on_barcode(&mr, &br, &a);
+			br.kind = BC_OK; br.cmd = 'F'; mission_on_barcode(&mr, &br, &a);
+			CHECK_T("S5-H13g", mr.state == SYS_LINE_FOLLOW && mr.stored_char == 'F' && a.n_nav == 1 &&
+				a.nav[0].type == NAV_RESUME && mr.bc_exit == BCX_DECODED,
+				"decoded: letter stored, back to the normal speed (exit: decoded)");
+			mission_init(&mr); mr.state = SYS_LINE_FOLLOW; a = clear_act();
+			br.kind = BC_FIRST; mission_on_barcode(&mr, &br, &a);
+			mission_on_tick(&mr, 5, MOT_TURNING, 0, &a);
+			a = clear_act(); mission_on_tick(&mr, MS_BC_BACKUP, MOT_TURNING, 0, &a);
+			CHECK_T("S5-H13h", mr.state == SYS_FAULT_RECOVERY && (a.evt_flags & EVT_STOP) &&
+				mr.bc_exit == BCX_BACKUP_FAULT,
+				"back-up that never ends -> FAULT_RECOVERY");
+			mission_init(&mr); mr.state = SYS_LINE_FOLLOW; mr.bc_phase = BCP_READ; a = clear_act();
+			br.kind = BC_FIRST; mission_on_barcode(&mr, &br, &a);
+			mission_on_tick(&mr, 5, MOT_TURNING, 0, &a);
+			mission_on_tick(&mr, 5, MOT_STOPPED, 1, &a);
+			a = clear_act(); mission_on_tick(&mr, MS_BARCODE_SCAN, MOT_DRIVING, 1, &a);
+			CHECK_T("S5-H13i", mr.state == SYS_LINE_FOLLOW && a.n_nav == 1 && a.nav[0].type == NAV_RESUME &&
+				mr.bc_exit == BCX_TIMEOUT,
+				"slow pass with no result: times out at the normal speed");
+			/* S5-H13k: the slow pass never crawls further than the code needs */
+			mission_init(&mr); mr.state = SYS_LINE_FOLLOW; a = clear_act();
+			br.kind = BC_FIRST; mission_on_barcode(&mr, &br, &a);
+			mission_on_tick(&mr, 5, MOT_TURNING, 0, &a);
+			mission_on_tick(&mr, 5, MOT_STOPPED, 1, &a);
+			mission_on_forward(&mr, 1000, &a);
+			a = clear_act(); mission_on_forward(&mr, 1000 + BC_READ_MAX_MM - 1, &a);
+			CHECK_T("S5-H13k", mr.state == SYS_BARCODE_SCAN && a.n_nav == 0,
+				"slow pass still over the code (steering does not count as progress)");
+			mission_on_forward(&mr, 1000 + BC_READ_MAX_MM, &a);
+			CHECK_T("S5-H13l", mr.state == SYS_LINE_FOLLOW && a.n_nav == 1 && a.nav[0].type == NAV_RESUME &&
+				mr.bc_exit == BCX_DISTANCE,
+				"past the code with no result: normal speed again (does not wait for the barcode time-out)");
+			mission_init(&mr); mr.state = SYS_IDLE; a = clear_act();
+			mission_on_barcode(&mr, &br, &a);
+			mr.state = SYS_HUMP_TRAVERSE; mission_on_barcode(&mr, &br, &a);
+			CHECK_T("S5-H13j", mr.state == SYS_HUMP_TRAVERSE && a.n_nav == 0 && a.evt_flags == 0,
+				"first bar while IDLE (hand swipe) or on a hump: no back-up");
+			s.flags = 0;
+		}
+		/* S5-H15: forward read fails -> reverse slowly over the code, read again */
+		{
+			MISSION   mv;
+			MSG_BCCMD bv;
+
+			mission_init(&mv); mv.state = SYS_LINE_FOLLOW; a = clear_act();
+			mission_on_forward(&mv, 1000, &a);
+			bv.kind = BC_FIRST; bv.cmd = 0; mission_on_barcode(&mv, &bv, &a);
+			mission_on_tick(&mv, 5, MOT_TURNING, 0, &a);
+			mission_on_tick(&mv, 5, MOT_STOPPED, 1, &a);		/* backed up */
+			mission_on_forward(&mv, 900, &a);			/* slow pass starts */
+			mission_on_forward(&mv, 1240, &a);			/* 340 mm later */
+			a = clear_act(); bv.kind = BC_FAIL; mission_on_barcode(&mv, &bv, &a);
+			CHECK_T("S5-H15a", mv.state == SYS_BARCODE_SCAN && mv.bc_phase == BCP_REVERSE &&
+				(a.evt_flags & EVT_BC_ARM) && a.n_nav == 1 && a.nav[0].type == NAV_MOVE &&
+				a.nav[0].arg == -340 && a.nav[0].arg2 == BC_REVERSE_MMPS,
+				"forward read failed: fresh capture, reverse 340 mm at 18 mm/s to the start");
+			a = clear_act(); s.steer = 500; s.flags = STEER_F_JUNCTION | STEER_F_TIMEOUT;
+			mission_on_steer(&mv, &s, &a);
+			CHECK_T("S5-H15b", a.n_nav == 0 && !(a.evt_flags & EVT_STOP) && !mv.creeping,
+				"reversing: no steering, junction or line-lost fault");
+			s.flags = 0;
+			bv.kind = BC_OK; bv.cmd = 'F'; mission_on_barcode(&mv, &bv, &a);
+			CHECK_T("S5-H15c", mv.state == SYS_BARCODE_SCAN && mv.bc_phase == BCP_REVERSE &&
+				mv.stored_char == 'F' && mv.bc_exit == BCX_DECODED_REV,
+				"read backwards: letter stored, keeps reversing to the start");
+			a = clear_act(); mission_on_tick(&mv, 5, MOT_TURNING, 1, &a);
+			mission_on_tick(&mv, 5, MOT_STOPPED, 2, &a);
+			CHECK_T("S5-H15d", mv.state == SYS_LINE_FOLLOW && (a.evt_flags & EVT_RESUME) && mv.bc_skip,
+				"reverse done: forward at the normal speed");
+			a = clear_act(); mission_on_forward(&mv, 1100, &a);
+			bv.kind = BC_FIRST; mission_on_barcode(&mv, &bv, &a);
+			bv.kind = BC_OK; bv.cmd = 'Q'; mission_on_barcode(&mv, &bv, &a);
+			CHECK_T("S5-H15e", mv.state == SYS_LINE_FOLLOW && a.n_nav == 0 && mv.stored_char == 'F',
+				"driving over the same code again: ignored, no back-up, letter kept");
+			mission_on_forward(&mv, 1240 + BC_SKIP_MARGIN_MM, &a);
+			a = clear_act(); bv.kind = BC_FIRST; mission_on_barcode(&mv, &bv, &a);
+			CHECK_T("S5-H15f", !mv.bc_skip && mv.state == SYS_BARCODE_SCAN && mv.bc_phase == BCP_BACKUP,
+				"past the code: the next barcode is read again");
+			/* both reads fail: give up after the reverse, no second reverse */
+			mission_on_tick(&mv, 5, MOT_TURNING, 2, &a);
+			mission_on_tick(&mv, 5, MOT_STOPPED, 3, &a);
+			mission_on_forward(&mv, 1400, &a); mission_on_forward(&mv, 1500, &a);
+			bv.kind = BC_FAIL; mission_on_barcode(&mv, &bv, &a);
+			a = clear_act(); mission_on_barcode(&mv, &bv, &a);
+			CHECK_T("S5-H15g", mv.bc_phase == BCP_REVERSE && a.n_nav == 0, "a second failure while reversing: no new move");
+			mission_on_tick(&mv, 5, MOT_TURNING, 3, &a);
+			mission_on_tick(&mv, 5, MOT_STOPPED, 4, &a);
+			CHECK_T("S5-H15h", mv.state == SYS_LINE_FOLLOW && mv.bc_exit == BCX_FAILED,
+				"both reads failed: carry on, reported as failed");
+		}
+		/* S5-H10: obstacle floor test, straight driving with no line */
+		{
+			MISSION   ms;
+			MSG_OBS   os;
+
+			mission_init(&ms); ms.straight_only = 1; ms.state = SYS_IDLE; a = clear_act();
+			mission_on_button(&ms, &a);
+			CHECK_T("S5-H10a", ms.state == SYS_LINE_FOLLOW && a.scan_cmd == SCANCMD_ARM,
+				"GP20: drives, obstacle detection armed");
+			a = clear_act(); s.steer = 700; s.flags = STEER_F_LOST | STEER_F_TIMEOUT | STEER_F_JUNCTION;
+			mission_on_steer(&ms, &s, &a);
+			CHECK_T("S5-H10b", ms.state == SYS_LINE_FOLLOW && a.n_nav == 1 && a.nav[0].type == NAV_STEER &&
+				a.nav[0].arg == 0 && !ms.creeping && !(a.evt_flags & EVT_STOP),
+				"line ignored: steer 0, no junction creep, no line-lost fault");
+			a = clear_act(); memset(&os, 0, sizeof os); os.kind = OBS_DETECTED; os.dist_mm = 250;
+			mission_on_obs(&ms, &os, &a);
+			CHECK_T("S5-H10c", ms.state == SYS_OBSTACLE_SCAN && (a.evt_flags & EVT_STOP),
+				"obstacle within 30 cm: stop");
+			a = clear_act(); mission_on_tick(&ms, 5, MOT_STOPPED, 0, &a);
+			CHECK_T("S5-H10d", a.scan_cmd == SCANCMD_PROFILE, "stopped: servo sweep ordered");
+			a = clear_act(); os.kind = OBS_RESULT; os.side = OBS_SIDE_LEFT; os.width_mm = 120;
+			mission_on_obs(&ms, &os, &a);
+			CHECK_T("S5-H10e", ms.state == SYS_OBSTACLE_BYPASS && a.n_nav == 1 &&
+				a.nav[0].type == NAV_BYPASS && a.nav[0].arg == OBS_SIDE_LEFT, "bypass on the clear side");
+			a = clear_act(); mission_on_tick(&ms, 5, MOT_BYPASS, 3, &a);
+			mission_on_tick(&ms, 5, MOT_STOPPED, 4, &a);
+			CHECK_T("S5-H10f", ms.state == SYS_LINE_FOLLOW && (a.evt_flags & EVT_RESUME) &&
+				a.scan_cmd == SCANCMD_ARM, "bypass done: straight on, detection armed again (no line search)");
+			a = clear_act(); mission_on_tick(&ms, MS_LINE_REACQUIRE + 100, MOT_DRIVING, 4, &a);
+			CHECK_T("S5-H10g", ms.state == SYS_LINE_FOLLOW && !(a.evt_flags & EVT_STOP),
+				"no line-reacquire timeout fault");
 			s.flags = 0;
 		}
 		/* barcode floor test: stop once a barcode is read or has failed */
@@ -389,20 +591,38 @@ int main(void)
 		CHECK_T("S5-H01", m.state == SYS_FAULT_RECOVERY, "OBSTACLE_SCAN times out");
 
 		{
+			/* far left, near left, centre, near right, far right (45 / 22.5 deg) */
 			INT d[SCAN_ANGLES] = { 1200, 900, 250, 700, 800 };
 
 			CHECK_T("S5-U10a", scan_evaluate(d, &r) && r.width_mm < 300, "narrow obstacle profiled");
 			CHECK_T("S5-U10b", r.clear_left_mm > r.clear_right_mm ? r.side == OBS_SIDE_LEFT : r.side == OBS_SIDE_RIGHT,
 				"side with more room chosen");
-			d[0] = 500; d[1] = 289; d[2] = 250; d[3] = 289; d[4] = 500;
+			d[0] = 354; d[1] = 271; d[2] = 250; d[3] = 271; d[4] = 354;	/* flat wall */
 			CHECK_T("S5-U10c", !scan_evaluate(d, &r), "wall wider than sweep -> fault");
 			d[2] = 0;
 			CHECK_T("S5-U10d", !scan_evaluate(d, &r), "no centre echo -> fault");
 			{
-				/* 20 cm wide box 250 mm ahead: beams at +/-30 deg still hit (lat 144 mm > 100) */
-				INT w[SCAN_ANGLES] = { 1200, 288, 250, 1500, 1500 };
+				/* box 250 mm ahead reaching past the far left beam (360 <= 354 + tol) */
+				INT w[SCAN_ANGLES] = { 360, 280, 250, 1500, 1500 };
 
-				CHECK_T("S5-H02", scan_evaluate(w, &r) && r.side == OBS_SIDE_RIGHT, "box extends left -> go right");
+				CHECK_T("S5-H02", scan_evaluate(w, &r) && r.side == OBS_SIDE_RIGHT && r.clear_left_mm == 0,
+					"box extends left -> go right");
+				CHECK_T("S5-H11", scan_pulse_us(SCAN_FAR_LEFT) == SCAN_US_FAR_LEFT &&
+					scan_pulse_us(SCAN_NEAR_LEFT) == SCAN_US_NEAR_LEFT &&
+					scan_pulse_us(SCAN_CENTRE) == SCAN_US_CENTRE &&
+					scan_pulse_us(SCAN_NEAR_RIGHT) == SCAN_US_NEAR_RIGHT &&
+					scan_pulse_us(SCAN_FAR_RIGHT) == SCAN_US_FAR_RIGHT &&
+					SCAN_US_FAR_LEFT > SCAN_US_NEAR_LEFT && SCAN_US_NEAR_LEFT > SCAN_US_CENTRE &&
+					SCAN_US_CENTRE > SCAN_US_NEAR_RIGHT && SCAN_US_NEAR_RIGHT > SCAN_US_FAR_RIGHT,
+					"5 servo positions use their pulse widths, in order, centre 1660 us");
+				/* the edge between the near and far beams: half width between the two */
+				{
+					INT e[SCAN_ANGLES] = { 1200, 290, 250, 1200, 1200 };
+
+					CHECK_T("S5-H14", scan_evaluate(e, &r) && r.side == OBS_SIDE_RIGHT &&
+						r.clear_left_mm < r.clear_right_mm && r.width_mm > 51 * 2,
+						"near beam still hits, far beam clear: wider on that side, go the other way");
+				}
 			}
 		}
 
@@ -439,7 +659,8 @@ int main(void)
 
 			/* conversion limits: no pulse, and a pulse longer than ~2 m, are 'no echo' */
 			CHECK_T("S5-H04f", echo_us_to_mm(0) == SCAN_NO_ECHO && echo_us_to_mm(ECHO_MAX_US + 1) == SCAN_NO_ECHO &&
-				echo_us_to_mm(ECHO_MAX_US) > 0 && echo_us_to_mm(583) == 99,
+				echo_us_to_mm(ECHO_MAX_US) > 0 && echo_us_to_mm(583) == 99 &&
+				echo_us_to_mm(152) == SCAN_NO_ECHO && echo_us_to_mm(234) == 40,
 				"0 or > 12 ms = no echo; 583 us = 99 mm");
 		}
 	}

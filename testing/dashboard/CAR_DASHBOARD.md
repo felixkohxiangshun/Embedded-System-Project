@@ -11,7 +11,7 @@ car (Pico W) --WiFi, MQTT--> Mosquitto on the Mac --WebSocket--> car.html
 |---|---|---|---|
 | `csc11/dev/car/telemetry` | 11 bytes | 500 ms | state, speed, distance, heading, line seen, obstacle, last and stored character, tallest hump, shock, faults |
 | `csc11/dev/car/barcode` | 3 + 2 per width (≤ 81 bytes) | once per barcode capture | seq, decode result, edge count, then each bar/space width as u16 LE in 0.1 ms, bar first |
-| `csc11/dev/car/debug` | 14 bytes | 100 ms | darkC, darkR, line error, steering, line mode, barcode edges/decoded/failed/last, last decode result and edge count, ultrasonic mm, motor state |
+| `csc11/dev/car/debug` | 22 bytes | 100 ms | darkC, darkR, line error, steering, line mode, barcode edges/decoded/failed/last, last decode result and edge count, ultrasonic mm, motor state, scan state, last sweep mm at all five positions and chosen side |
 | `csc11/dev/car/heartbeat` | 1 byte | 1 s, only when telemetry stops | system state |
 | `csc11/dev/car/cmd` | | | subscribed, for the movement mapping later |
 

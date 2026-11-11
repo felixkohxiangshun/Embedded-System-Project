@@ -65,8 +65,8 @@ EXPORT void mission_obstacle_test(void)
 	mission_act_clear(&a);
 	b = bc(BC_OK, 'F'); mission_on_barcode(&m, &b, &a);
 	TEST_CHECK("S5-U03", m.state == SYS_LINE_FOLLOW && a.n_nav == 0 && m.stored_char == 'F' &&
-		   mission_junction_deg(&m, 'F') == 180 && mission_junction_deg(&m, 'A') == 0,
-		   "decoded F -> stored, no turn now; F = U-turn at the junction, A unmapped");
+		   mission_junction_deg(&m, 'F') == 90 && mission_junction_deg(&m, 'A') == 0,
+		   "decoded F -> stored, no turn now; F = right turn at the junction, A unmapped");
 
 	/* S5-U04: a failed decode returns to LINE_FOLLOW with no turn */
 	mission_act_clear(&a);
@@ -133,17 +133,16 @@ EXPORT void mission_obstacle_test(void)
 
 	/* S5-U10: obstacle profile, a 100 mm box 250 mm ahead, room on both sides */
 	{
-		INT d[SCAN_ANGLES] = { 0, 0, 250, 0, 0 };
+		/* far left .. far right (45 / 22.5 deg); the outer beams see far walls */
+		INT d[SCAN_ANGLES] = { 1200, 900, 250, 700, 800 };
 
-		/* -60/-30/+30/+60 see far walls (no echo = max range) */
-		d[0] = 1200; d[1] = 900; d[3] = 700; d[4] = 800;
 		TEST_CHECK("S5-U10a", scan_evaluate(d, &r) && r.width_mm < 300 && r.width_mm >= 0,
 			   "narrow obstacle is profiled");
 		TEST_CHECK("S5-U10b", r.clear_left_mm > r.clear_right_mm ? r.side == OBS_SIDE_LEFT
 								       : r.side == OBS_SIDE_RIGHT,
 			   "the side with more clearance is chosen");
 		/* wall of the same distance across the whole sweep: nowhere to go */
-		d[0] = 500; d[1] = 289; d[2] = 250; d[3] = 289; d[4] = 500;
+		d[0] = 354; d[1] = 271; d[2] = 250; d[3] = 271; d[4] = 354;
 		TEST_CHECK("S5-U10c", !scan_evaluate(d, &r), "obstacle wider than the sweep -> fault");
 		d[2] = 0;
 		TEST_CHECK("S5-U10d", !scan_evaluate(d, &r), "no centre echo -> fault");

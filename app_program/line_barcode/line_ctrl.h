@@ -44,6 +44,13 @@ typedef struct
     bool     b_seen;            /* line visible (with hysteresis) */
     bool     b_faded;           /* FADED mode (with hysteresis) */
     bool     b_primed;          /* prev_err and err_filt hold real values */
+    /* Straddle mode only (LB_LINE_STRADDLE): */
+    int32_t  out_side;          /* -1 / +1: the line may have left past the
+                                   centre / right sensor; 0: it is inside */
+    int32_t  ep_side;           /* side of the darkest reading so far */
+    int32_t  ep_peak;           /* darkest reading of this black episode */
+    uint32_t seek_ticks;        /* ticks spent steering toward out_side */
+    bool     b_episode;         /* a sensor is seeing black */
 } line_ctrl_t;
 
 /** Branch detector state. */

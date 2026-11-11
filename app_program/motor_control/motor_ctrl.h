@@ -19,12 +19,11 @@
 #define ENC_SIGN_LEFT		(+1)	/* flip if the count runs backwards */
 #define ENC_SIGN_RIGHT		(+1)
 
-/* ---- Speeds, mm/s [CAL].  FR-11 says "1-2 cm/s", which reads as a typo
- *      for 10-20 cm/s; 12 cm/s is used until the team confirms. ---- */
-/* Temporary test speeds, out of the normal 120 mm/s.  SLOW matches so a
-   NAV_SLOW cannot speed the car up.  Restore 120 and 60 after the tests.
-   S1_TEST_FWD_BTN 1: GP21 forward test, 30 % (motor_control_test.c)
-   S1_TEST_FWD_BTN 0: GP20 barcode floor test, 18 mm/s (15 %) */
+/* ---- Speeds, mm/s [CAL] ----
+   S1_TEST_FWD_BTN 1: GP21 forward test, 36 mm/s (motor_control_test.c)
+   S1_TEST_FWD_BTN 0: the run.  NORMAL is line tracking; SLOW is for
+   reading a barcode (the car backs up 5 cm when a code starts, then
+   crosses it at this speed), for humps and for the bypass legs. */
 #ifndef S1_TEST_FWD_BTN
 #define S1_TEST_FWD_BTN		0
 #endif
@@ -32,12 +31,11 @@
 #define SPEED_NORMAL_MMPS	36
 #define SPEED_SLOW_MMPS		36
 #else
-/* Barcode floor test (2026-11-07): half of the 36 mm/s line-tracking test
-   speed, so the narrow bars last twice as long under the sensor. */
-#define SPEED_NORMAL_MMPS	18
-#define SPEED_SLOW_MMPS		18
+#define SPEED_NORMAL_MMPS	60
+#define SPEED_SLOW_MMPS		18	/* barcode reading was tuned at this speed */
 #endif
 #define SPEED_TURN_MMPS		60
+#define SPEED_MOVE_MMPS		50	/* NAV_MOVE, e.g. backing up 5 cm over a barcode */
 #define STEER_GAIN_MMPS		60	/* wheel speed difference at full steer */
 #define TURN_COAST_COUNTS	15	/* a pivot coasts this far after the motors cut, so cut early [CAL] */
 

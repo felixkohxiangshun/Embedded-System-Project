@@ -12,7 +12,7 @@ let lastDebugAt = 0;
 let telemTimes = [];
 let debugTimes = [];
 let trace = [];
-let previous = { state: null, faults: 0, bcOk: null, bcFail: null, stored: null };
+let previous = { state: null, faults: 0, bcOk: null, bcFail: null, stored: null, scanState: null, scanSide: null, bcExit: null };
 
 function event(text) {
   const item = document.createElement('li');
@@ -82,11 +82,25 @@ function showDebug(g) {
   $('mode').textContent = g.modeName;
   $('motor').textContent = g.motorName;
   $('ultra').textContent = g.ultraMm === null ? 'no echo' : `${g.ultraMm} mm`;
+  $('scan-ultra').textContent = g.ultraMm === null ? 'no echo' : `${g.ultraMm} mm`;
+  $('scan-state').textContent = g.scanStateName;
+  const mm = v => (v === null ? 'no echo' : `${v} mm`);
+  ['scan-fl', 'scan-nl', 'scan-c', 'scan-nr', 'scan-fr'].forEach((id, i) => { $(id).textContent = mm(g.scanMm[i]); });
+  $('scan-side').textContent = g.scanSideName;
+  if (previous.scanState !== null && g.scanState !== previous.scanState) event(`scan: ${g.scanStateName}`);
+  if (previous.scanSide !== null && g.scanSide !== previous.scanSide && g.scanSide !== 0) {
+    event(`sweep ${g.scanMm.map(mm).join(' / ')} (far left to far right): ${g.scanSideName}`);
+  }
+  previous.scanState = g.scanState;
+  previous.scanSide = g.scanSide;
   $('bc-edges').textContent = g.bcEdges;
   $('bc-ok').textContent = g.bcOk;
   $('bc-fail').textContent = g.bcFail;
   $('bc-result').textContent = g.bcResult;
   $('bc-count').textContent = `${g.bcCount} / 30`;
+  $('bc-exit').textContent = g.bcExitName;
+  if (previous.bcExit !== null && g.bcExit !== previous.bcExit && g.bcExit !== 0) event(`barcode pass ended: ${g.bcExitName}`);
+  previous.bcExit = g.bcExit;
   if (previous.bcOk !== null && g.bcOk !== previous.bcOk) event(`barcode read: ${g.bcLast ?? '?'}`);
   if (previous.bcFail !== null && g.bcFail !== previous.bcFail) event(`barcode failed: ${g.bcResult}, ${g.bcCount} edges`);
   previous.bcOk = g.bcOk;
