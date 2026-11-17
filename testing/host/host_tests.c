@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include "motor_control/motor_control.h"
 #include "imu_terrain/imu_terrain.h"
+#include "imu_terrain/imu_test_hump.h"
 #include "dashboard/dashboard.h"
 #include "mission_obstacle/mission_obstacle.h"
 #include "dashboard/protocol_bits.h"
@@ -112,32 +113,100 @@ int main(void)
 
 	/* ---------------- subsystem 3 ---------------- */
 	{
-		IMU_LOGIC l;
-		int i, ev;
+		static IMU_LOGIC l;		/* ~1 KB */
+		TH_HUMP flat = { 0, 0, 1, 0, 0 };
+		TH_HUMP h20 = { 400, 20, 60, 50, 1 };	/* 20 mm under the right wheel */
+		TH_HUMP h10 = { 400, 10, 40, 30, 1 };
+		TH_HUMP h70 = { 400, 70, 200, 40, 1 };	/* above HUMP_MAX_MM */
+		TH_HUMP w20 = { 400, 20, 60, 50, 0 };	/* 20 mm across the whole track */
+		IMU_VEC rest = { 0, 0, 1000 };
+		TH_OUT o;
+		INT rem = 0, k, sum = 0, first, ev;
 
 		imu_logic_init(&l);
-		for (i = 0; i < IMU_CAL_SAMPLES; i++) { imu_feed(&l, 1000); }
-		CHECK_T("S3-U01", l.state == IMU_MONITORING && l.baseline_mg == 1000, "baseline measured");
-		ev = imu_feed(&l, 1400);
-		CHECK_T("S3-U02a", ev == IMU_EV_HUMP_START, "hump starts");
-		imu_feed(&l, 1600);
-		ev = imu_feed(&l, 1010);
-		CHECK_T("S3-U02b", ev == IMU_EV_HUMP_DONE && l.peak_mg == 600 &&
-			l.height_mm == (600 * HUMP_MM_PER_G) / 1000, "hump height from the peak");
-		imu_feed(&l, 1000); imu_feed(&l, 1200); imu_feed(&l, 1005);
-		CHECK_T("S3-U03", l.max_height_mm == (600 * HUMP_MM_PER_G) / 1000, "tallest hump kept");
+		th_calibrate(&l);
+		o = th_drive(&l, &flat, 0, 1500, -1, 0, 0, -1);
+		CHECK_T("S3-U01", l.state == IMU_MONITORING && l.calibrated &&
+			th_abs(l.rest.fwd - 35) <= 10 && o.starts == 0 && o.dones == 0,
+			"calibrates (2 deg mount tilt), flat road is quiet");
+		o = th_drive(&l, &h20, 0, 1000, -1, 0, 0, -1);
+		first = o.height_mm;
+		CHECK_T("S3-U02", o.starts == 1 && o.dones == 1 && th_abs(first - 20) <= 2,
+			"20 mm hump under one wheel: start + done, height within 2 mm");
+		o = th_drive(&l, &h10, 0, 1000, -1, 0, 0, -1);
+		CHECK_T("S3-U03", o.dones == 1 && th_abs(o.height_mm - 10) <= 2 &&
+			l.max_height_mm == first, "10 mm hump measured, tallest (20) kept");
+
 		imu_logic_init(&l);
-		for (i = 0; i < IMU_CAL_SAMPLES; i++) { imu_feed(&l, 1000); }
-		imu_feed(&l, 1000 + SHOCK_MG + 500); imu_feed(&l, 1000 + SHOCK_MG + 500);
-		CHECK_T("S3-U04", imu_feed(&l, 1000) == IMU_EV_SHOCK, "2-sample spike = SHOCK");
-		imu_logic_init(&l);
-		for (i = 0; i < IMU_CAL_SAMPLES; i++) { imu_feed(&l, 1000); }
-		for (i = 0; i < 5; i++) { imu_feed(&l, 1000 + SHOCK_MG + 500); }
-		CHECK_T("S3-U05", imu_feed(&l, 1000) != IMU_EV_SHOCK, "5-sample reading is not a SHOCK");
+		th_calibrate(&l);
+		o = th_drive(&l, &flat, 0, 400, 200, 3500, 2, -1);
+		CHECK_T("S3-U04", o.shocks == 1, "2-sample 3.5 g knock = SHOCK");
+		CHECK_T("S3-U08", o.starts == 0 && o.dones == 0, "a knock does not look like a hump");
+		o = th_drive(&l, &flat, 0, 400, 200, 3500, 5, -1);
+		CHECK_T("S3-U05", o.shocks == 0, "5-sample reading is not a SHOCK");
+
 		imu_fault(&l);
-		CHECK_T("S3-U06a", l.state == IMU_SENSOR_FAULT && imu_feed(&l, 5000) == IMU_EV_NONE, "fault ignores samples");
+		CHECK_T("S3-U06a", l.state == IMU_SENSOR_FAULT &&
+			imu_feed(&l, &rest, 1200, FALSE, TRUE) == IMU_EV_NONE, "fault ignores samples");
 		imu_recovered(&l);
-		CHECK_T("S3-U06b", l.state == IMU_CALIBRATING, "recovery recalibrates");
+		CHECK_T("S3-U06b", l.state == IMU_MONITORING && l.calibrated, "recovery keeps the baseline");
+		imu_logic_init(&l);
+		imu_fault(&l);
+		imu_recovered(&l);
+		CHECK_T("S3-U06c", l.state == IMU_CALIBRATING, "recovery before calibration -> CALIBRATING");
+
+		imu_logic_init(&l);
+		th_calibrate(&l);
+		o = th_drive(&l, &h20, 0, 1000, -1, 0, 0, -1);
+		first = l.max_height_mm;
+		o = th_drive(&l, &h70, 0, 1200, -1, 0, 0, -1);
+		CHECK_T("S3-U09", o.dones == 1 && o.height_mm > HUMP_MAX_MM && l.max_height_mm == first,
+			"hump above 63 mm reported, not kept as tallest");
+		o = th_drive(&l, &h20, 0, 1000, -1, 0, 0, 450);
+		CHECK_T("S3-U10", o.dones == 0 && l.state == IMU_MONITORING, "turn during a hump: given up");
+
+		for (k = 0; k < 1000; k++) {
+			sum += imu_counts_to_um(&rem, 30, WHEEL_MM_PER_REV, 2 * ENC_COUNTS_PER_REV);
+		}
+		/* 15000 counts per wheel * 216 / 2654 mm = 1220.799 mm */
+		CHECK_T("S3-U11", th_abs(sum - 1220799) <= 1, "encoder counts -> um, no rounding drift");
+
+		imu_logic_init(&l);
+		imu_set_mode(&l, HUMP_MODE_PITCH);
+		th_calibrate(&l);
+		o = th_drive(&l, &w20, 0, 1000, -1, 0, 0, -1);
+		CHECK_T("S3-U12", o.dones == 1 && th_abs(o.height_mm - 20) <= 2,
+			"pitch mode: 20 mm hump across the track within 2 mm");
+
+		imu_logic_init(&l);
+		th_calibrate(&l);
+		o = th_drive(&l, &h20, 0, 508, -1, 0, 0, -1);	/* stops on the top */
+		CHECK_T("S3-U13", o.dones == 0 && imu_finish(&l) == IMU_EV_HUMP_DONE &&
+			th_abs(l.height_mm - 20) <= 2 && l.run_peak_um >= 18000,
+			"car stops on the hump: finish gives the height");
+
+		/* S3-U14: the bug seen on the car (2026-11-01): never calibrated, so the
+		   board's mounting tilt looked like a lifted wheel and a "hump" was
+		   reported at power-up and never ended.  Now nothing is measured until
+		   the car has stood still for the calibration. */
+		imu_logic_init(&l);
+		{
+			IMU_VEC tilted = { -30, 40, 884 };	/* tilted board, as read on the car */
+
+			for (k = 0; k < 300; k++) {
+				ev = imu_feed(&l, &tilted, (k % 3 == 0) ? -10 : 0, FALSE, TRUE);
+				if (ev != IMU_EV_NONE) {
+					break;
+				}
+			}
+			CHECK_T("S3-U14a", k == 300 && l.state == IMU_CALIBRATING && !l.calibrated,
+			        "not calibrated: no hump from a tilted board, stays CALIBRATING");
+			for (k = 0; k < IMU_CAL_SAMPLES + 5; k++) {
+				ev = imu_feed(&l, &tilted, 0, TRUE, TRUE);
+			}
+			CHECK_T("S3-U14b", l.calibrated && l.state == IMU_MONITORING && ev == IMU_EV_NONE &&
+			        imu_height_now_um(&l) == 0, "calibrates at rest even with |a| = 885 mg; then quiet");
+		}
 	}
 
 	/* ---------------- subsystem 4: binary frames (TEAM.md 7) ---------------- */
