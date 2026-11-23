@@ -202,7 +202,8 @@ ir_driver_get_dark (uint32_t channel)
  *
  * @param[in] channel  ADC input 0 to 4.
  *
- * @return 12-bit result; 0 if the converter never became ready.
+ * @return LB_ADC_BITS-bit result (the 12-bit conversion with its noisy low
+ *         bits dropped); 0 if the converter never became ready.
  */
 static uint16_t
 adc_convert (uint32_t channel)
@@ -220,7 +221,8 @@ adc_convert (uint32_t channel)
     if (polls < ADC_POLL_LIMIT)
     {
         /* Cast: the value is masked to 12 bits, so it fits uint16_t. */
-        result = (uint16_t)(in_w(ADC_RESULT) & ADC_RESULT_MASK);
+        result = (uint16_t)((in_w(ADC_RESULT) & ADC_RESULT_MASK)
+                            >> (12 - LB_ADC_BITS));
     }
     else
     {
@@ -239,7 +241,7 @@ adc_convert (uint32_t channel)
  *
  * @param[in] channel  IR_CHANNEL_xxx.
  *
- * @return Dark-scale count, 0 to 4095.
+ * @return Dark-scale count, 0 to LB_ADC_MAX_COUNT.
  */
 static int32_t
 adc_read_dark (uint32_t channel)

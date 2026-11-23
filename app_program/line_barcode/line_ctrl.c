@@ -87,6 +87,22 @@ line_ctrl_restart (line_ctrl_t * p_ctrl, int32_t last_steer)
 }
 
 void
+line_ctrl_seek (line_ctrl_t * p_ctrl, int32_t side)
+{
+    if ((NULL != p_ctrl) && (0 != side))
+    {
+        p_ctrl->out_side   = (side > 0) ? 1 : -1;
+        p_ctrl->seek_ticks = 0u;
+    }
+    else
+    {
+        /* NULL pointer or no side: nothing to do. */
+    }
+
+    return;
+}
+
+void
 line_ctrl_update (line_ctrl_t * p_ctrl,
                   int32_t dark_centre,
                   int32_t dark_right,

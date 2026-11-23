@@ -38,14 +38,15 @@ IMPORT void dash_step(DASH *d, const DASH_IN *in, DASH_OUT *out);
 IMPORT INT  dash_format_telem(const MSG_TELEM *t, char *buf, INT size);
 IMPORT INT  dash_format_heartbeat(UW uptime_ms, UB sys_state, char *buf, INT size);
 
-IMPORT UB   dash_parse_cmd(const char *text, INT len);
+#define DASH_CMD_BYTES		1	/* MQTT command payload: 1 byte, bit 0 = START */
+IMPORT UB   dash_parse_cmd(const char *data, INT len);
 
 /* ---- Binary frames (TEAM.md section 7) --------------------------------
    Packed with protocol_bits: each field takes the bits its maximum needs,
    fields in the order listed, starting at bit 0 of byte 0 (least
    significant bit first).  Signed fields are sent with an offset. */
 #define DASH_TELEM_BYTES	11	/* 81 bits of fields, 7 spare */
-#define DASH_DEBUG_BYTES	22	/* 173 bits of fields, 3 spare */
+#define DASH_DEBUG_BYTES	24	/* 189 bits of fields, 3 spare */
 #define DASH_HB_BYTES		1	/* system state only */
 #define DASH_CHAR_NONE		31	/* character code: A..Z = 0..25 */
 
@@ -68,6 +69,9 @@ typedef struct {
 	INT	scan_mm[5];	/* last sweep, far left .. far right, 0 = no echo */
 	UB	scan_side;	/* 0 none yet, 1 left, 2 right, 3 no way round */
 	UB	bc_exit;	/* why the last barcode pass ended, BCX_xxx 0..7 */
+	INT	echo_rise_us;	/* ultrasonic: trigger to ECHO high, us (0 = never) */
+	INT	echo_edges;	/* ultrasonic: ECHO edges in the last ping */
+	UB	byp_result;	/* last bypass return: 0 none, 1 on the line, 2 no line */
 } DASH_DEBUG;
 
 IMPORT UB   dash_char_code(UB ch);

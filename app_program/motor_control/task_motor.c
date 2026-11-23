@@ -154,6 +154,9 @@ LOCAL void handle_nav(const MSG_NAV *m)
 	case NAV_RESUME:
 		speed_set = SPEED_NORMAL_MMPS;
 		break;
+	case NAV_SPEED:			/* Mission's obstacle tracking */
+		speed_set = clamp_i(m->arg, 0, SPEED_NORMAL_MMPS);
+		break;
 	case NAV_TURN:
 		if (state != MOT_TURNING && state != MOT_BYPASS) {
 			start_turn(m->arg);

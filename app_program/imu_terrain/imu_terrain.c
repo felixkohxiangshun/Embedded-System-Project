@@ -17,8 +17,9 @@ EXPORT ER imu_terrain_init(void)
 
 	ccyc.cycatr = TA_HLNG;
 	ccyc.cychdr = (FP)imu_cyclic_handler;
-	ccyc.cyctim = 10;		/* NFR-06: sample every 10 ms */
-	ccyc.cycphs = 10;
+	ccyc.cyctim = IMU_TICK_MS;		/* NFR-06: sample every 10 ms */
+	ccyc.cycphs = IMU_TICK_MS + 5;		/* 5 ms after Motor's tick: fresh encoder
+						   counts, and the two loops do not pile up */
 	cyc_imu = tk_cre_cyc(&ccyc);
 	return (cyc_imu < E_OK) ? cyc_imu : E_OK;
 }

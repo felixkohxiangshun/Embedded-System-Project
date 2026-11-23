@@ -883,6 +883,22 @@ test_straddle (void)
     CHECK("S2-S01b", b_ok,
           "straddle: centre black -> steer left, right black -> steer right");
 
+    /* after an obstacle bypass Mission says which side the line is on */
+    line_ctrl_init(&ctrl);
+    line_ctrl_restart(&ctrl, 0);
+    line_ctrl_seek(&ctrl, 1);
+    line_ctrl_update(&ctrl, 5, 5, &out);
+    b_ok = (out.err > 0);
+    line_ctrl_init(&ctrl);
+    line_ctrl_seek(&ctrl, -1);
+    line_ctrl_update(&ctrl, 5, 5, &out);
+    b_ok = b_ok && (out.err < 0);
+    line_ctrl_init(&ctrl);
+    line_ctrl_seek(&ctrl, 0);
+    line_ctrl_update(&ctrl, 5, 5, &out);
+    CHECK("S2-S09", b_ok && (0 == out.err),
+          "straddle: told the line is right/left, both white seeks that way; no hint, straight");
+
     line_ctrl_init(&ctrl);
     line_ctrl_update(&ctrl, 1000, 1000, &out);
     CHECK("S2-S01c", (0 == out.err),

@@ -32,6 +32,10 @@
       <section class="card">
         <h2>Car</h2>
         <div class="big-state" id="sys-state">—</div>
+        <div class="drive-controls">
+          <button id="btn-start" class="drive-start" disabled>Start</button>
+          <button id="btn-stop" class="drive-stop" disabled>Stop</button>
+        </div>
         <dl class="kv">
           <div><dt>Speed</dt><dd id="speed">—</dd></div>
           <div><dt>Distance</dt><dd id="distance">—</dd></div>
@@ -39,7 +43,7 @@
           <div><dt>Line seen</dt><dd id="line-seen">—</dd></div>
           <div><dt>Obstacle</dt><dd id="obstacle">—</dd></div>
           <div><dt>Tallest hump</dt><dd id="hump">—</dd></div>
-          <div><dt>Shock</dt><dd id="shock">—</dd></div>
+          <div><dt>Lifted</dt><dd id="lifted">—</dd></div>
           <div><dt>Faults</dt><dd id="faults">—</dd></div>
         </dl>
       </section>
@@ -66,12 +70,15 @@
         <dl class="kv">
           <div><dt>Ultrasonic now</dt><dd id="scan-ultra">—</dd></div>
           <div><dt>Scan state</dt><dd id="scan-state">—</dd></div>
+          <div><dt>Echo starts after</dt><dd id="echo-rise">—</dd></div>
+          <div><dt>Echo edges per ping</dt><dd id="echo-edges">—</dd></div>
           <div><dt>Sweep far left</dt><dd id="scan-fl">—</dd></div>
           <div><dt>Sweep near left</dt><dd id="scan-nl">—</dd></div>
           <div><dt>Sweep centre</dt><dd id="scan-c">—</dd></div>
           <div><dt>Sweep near right</dt><dd id="scan-nr">—</dd></div>
           <div><dt>Sweep far right</dt><dd id="scan-fr">—</dd></div>
           <div><dt>Decision</dt><dd id="scan-side">—</dd></div>
+          <div><dt>Last return leg</dt><dd id="byp-result">—</dd></div>
         </dl>
       </section>
 

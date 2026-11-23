@@ -43,6 +43,12 @@ LOCAL ECHO echo;		/* shared by the interrupt and scan_task */
    trigger, of the first rise and first fall after it, the number of ECHO
    edges since the trigger, and how many pings had no fall at all. */
 EXPORT volatile UW s5_echo_dbg[5];
+/* The same, latched once per ping for the dashboard: how long after the
+   trigger ECHO first went high (us, 0 = it never did), and how many ECHO
+   edges arrived.  A healthy HC-SR04 rises about 450-500 us after the
+   trigger and gives exactly 2 edges. */
+EXPORT volatile UW s5_echo_rise_us;
+EXPORT volatile UW s5_echo_edges;
 
 /* Called from the bank-0 GPIO interrupt (gpio_isr.c).  Never blocks. */
 EXPORT void ultra_echo_isr(UW now_us, UW edges)
@@ -99,7 +105,8 @@ LOCAL void busy_us(UW us)
 	}
 }
 
-/* One ping: the echo pulse width in us, 0 if none came back in time.
+/* One ping: the echo pulse width in us (converted from timer counts, see
+   TIMER_COUNTS_TO_US), 0 if none came back in time.
    Blocks (no CPU use) for at most ECHO_TIMEOUT_MS. */
 LOCAL UW ping_width_us(void)
 {
@@ -113,17 +120,20 @@ LOCAL UW ping_width_us(void)
 	s5_echo_dbg[2] = 0;
 	s5_echo_dbg[3] = 0;
 	gpio_set_val(PIN_ULTRA_TRIG, 1);
-	busy_us(10);
+	busy_us(10);		/* 10 counts = 427 us; the sensor needs >= 10 us */
 	gpio_set_val(PIN_ULTRA_TRIG, 0);
 	s5_echo_dbg[0] = APP_NOW_US();
 
 	er = tk_wai_flg(flg_echo, ECHO_FLG_DONE, TWF_ORW | TWF_BITCLR, &ptn, ECHO_TIMEOUT_MS);
+	s5_echo_edges = s5_echo_dbg[3];
+	s5_echo_rise_us = (s5_echo_dbg[1] != 0) ?
+		TIMER_COUNTS_TO_US(s5_echo_dbg[1] - s5_echo_dbg[0]) : 0;
 	if (er < E_OK) {
 		echo_disarm(&echo);		/* ignore the edge if it arrives later */
 		s5_echo_dbg[4]++;
 		return 0;
 	}
-	return echo.width_us;
+	return TIMER_COUNTS_TO_US(echo.width_us);	/* timer counts -> us */
 }
 
 /* One measurement in mm; SCAN_NO_ECHO (0) if no valid echo came back. */

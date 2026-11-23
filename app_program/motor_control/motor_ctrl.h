@@ -31,7 +31,7 @@
 #define SPEED_NORMAL_MMPS	36
 #define SPEED_SLOW_MMPS		36
 #else
-#define SPEED_NORMAL_MMPS	60
+#define SPEED_NORMAL_MMPS	78	/* 60 + 30 % (2026-11-18) */
 #define SPEED_SLOW_MMPS		18	/* barcode reading was tuned at this speed */
 #endif
 #define SPEED_TURN_MMPS		60

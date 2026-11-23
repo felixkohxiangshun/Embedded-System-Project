@@ -27,6 +27,10 @@
 #define STEER_F_LOST		0x01	/* both sensors are off the line */
 #define STEER_F_TIMEOUT		0x02	/* line lost longer than the timeout */
 #define STEER_F_JUNCTION	0x04	/* side branch found, sent once per branch */
+/* Black under one sensor right now (Mission: finding the line again after
+   an obstacle bypass).  The centre sensor is the LEFT one of the pair. */
+#define STEER_F_DARK_C		0x08	/* centre (left) sensor sees black */
+#define STEER_F_DARK_R		0x10	/* right sensor sees black */
 typedef struct {
 	INT	steer;			/* -1000..+1000, positive = steer right */
 	UB	flags;			/* STEER_F_xxx */
@@ -51,7 +55,9 @@ typedef struct {
 /* IF-04  IMU -> Mission : MBF_TERRAIN ----------------------------------- */
 #define TERR_HUMP_START		1	/* Z rose above the hump threshold */
 #define TERR_HUMP_DONE		2	/* Z back at baseline, height valid */
-#define TERR_SHOCK		3	/* > 3 g impulse shorter than 3 samples */
+#define TERR_LIFTED		3	/* turned upside down: end of the run, stop
+					   the motors (replaced TERR_SHOCK, IMU
+					   collision detection, 2026-11-17) */
 #define TERR_FAULT		4	/* I2C read failed (terrain data lost) */
 #define TERR_RECOVERED		5	/* sensor answers again */
 typedef struct {
@@ -63,7 +69,10 @@ typedef struct {
 /* IF-05  Scan -> Mission : MBF_OBS -------------------------------------- */
 #define OBS_DETECTED		1	/* object within 30 cm, waiting for stop */
 #define OBS_RESULT		2	/* profile done, side and sizes valid */
-#define OBS_FAIL		3	/* no echo or no side with room */
+#define OBS_FAIL		3	/* no side with room (Mission sweeps again) */
+#define OBS_CLEAR		4	/* profile found nothing ahead any more */
+#define OBS_RANGE		5	/* track mode: one reading at the held servo
+					   angle, dist_mm (0 = no echo) */
 #define OBS_SIDE_LEFT		(-1)
 #define OBS_SIDE_RIGHT		(+1)
 typedef struct {
@@ -72,19 +81,31 @@ typedef struct {
 	INT	dist_mm;		/* distance when first seen */
 	INT	width_mm;		/* estimated obstacle width */
 	INT	clear_mm;		/* clearance on the chosen side */
+	INT	extent;			/* how far out the obstacle reached on the
+					   chosen side: 0 centre beam only, 1 the
+					   22.5 deg beam, 2 the 45 deg beam too */
+	INT	reach_mm;		/* how far sideways it was seen on the chosen
+					   side, mm (0 = only straight ahead): sizes
+					   the 45 deg diagonal */
 } MSG_OBS;
 
 /* IF-06  Mission -> Scan : MBF_SCANCMD ---------------------------------- */
 #define SCANCMD_ARM		1	/* car is driving: ping ahead */
 #define SCANCMD_DISARM		2	/* stop pinging (idle, e-stop, ...) */
 #define SCANCMD_PROFILE		3	/* car has stopped: sweep and measure */
+#define SCANCMD_TRACK		4	/* aim the servo at arg degrees (- left,
+					   + right, -70..+70) and post an OBS_RANGE
+					   every ping; send again to re-aim */
 typedef struct {
 	UB	cmd;			/* SCANCMD_xxx */
+	INT	arg;			/* SCANCMD_TRACK: servo side */
 } MSG_SCANCMD;
 
 /* IF-07  Dashboard -> Mission : MBF_MQTTCMD ----------------------------- */
-#define MQTTCMD_ESTOP		1
-#define MQTTCMD_RESUME		2
+/* Remote E_STOP and RESUME were removed; Start and Stop are the only
+   commands.  On MQTT a command is one byte (dash_parse_cmd()). */
+#define MQTTCMD_START		1	/* dashboard Start: like BTN_START from IDLE */
+#define MQTTCMD_STOP		2	/* dashboard Stop: like BTN_START while running */
 typedef struct {
 	UB	cmd;			/* MQTTCMD_xxx */
 } MSG_MQTTCMD;
@@ -99,6 +120,8 @@ typedef struct {
 #define NAV_MOVE		6	/* arg = mm straight, - = backwards; arg2 =
 					   speed mm/s (0 = SPEED_MOVE_MMPS); ends
 					   in STOPPED like a turn */
+#define NAV_SPEED		7	/* arg = driving speed mm/s (obstacle
+					   tracking; NAV_RESUME restores normal) */
 typedef struct {
 	UB	type;			/* NAV_xxx */
 	INT	arg;
@@ -117,7 +140,7 @@ typedef struct {
 	INT	obs_dist_mm;
 	UB	last_barcode;		/* 'A'..'Z' or 0 */
 	INT	hump_max_mm;
-	UB	shock;
+	UB	lifted;			/* 1 = stopped because lifted upside down */
 	UB	fault_flags;		/* FAULT_xxx */
 	UW	uptime_ms;
 } MSG_TELEM;
@@ -149,7 +172,6 @@ typedef struct {
 #define SYS_OBSTACLE_BYPASS	7	/* RUNNING */
 #define SYS_LINE_REACQUIRE	8	/* RUNNING */
 #define SYS_FAULT_RECOVERY	9
-#define SYS_E_STOP		10
 
 /* Motor statechart (section 6.3) */
 #define MOT_STOPPED		0
@@ -186,7 +208,9 @@ typedef struct {
 	UB	stored_char;		/* letter kept for the next junction, or 0 */
 	INT	hump_mm;
 	INT	hump_max_mm;
-	UB	shock;
+	UB	lifted;			/* 1 = stopped because lifted upside down */
+	INT	line_hint;		/* -1 / +1: side the line is on when line
+					   following restarts after a bypass, 0 = none */
 	INT	obs_dist_mm;
 	INT	obs_width_mm;
 	INT	obs_side;

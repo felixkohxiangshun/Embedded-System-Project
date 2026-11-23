@@ -99,6 +99,9 @@ LOCAL void sample_debug(DASH_DEBUG *g)
 	g->scan_mm[4] = s5_scan_mm[4];
 	g->scan_side = s5_scan_side;
 	g->bc_exit = s5_bc_exit;
+	g->byp_result = s5_byp_result;
+	g->echo_rise_us = (INT)s5_echo_rise_us;
+	g->echo_edges = (INT)s5_echo_edges;
 	g->bc_status = (UB)g_lb_stats.bc_status;
 	g->bc_count = g_lb_stats.bc_count;
 	g->motor_state = MOT_STOPPED;

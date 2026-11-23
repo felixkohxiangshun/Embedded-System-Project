@@ -91,6 +91,14 @@ void line_ctrl_init(line_ctrl_t * p_ctrl);
 void line_ctrl_restart(line_ctrl_t * p_ctrl, int32_t last_steer);
 
 /*!
+ * @brief Straddle mode: the line is known to be on this side (-1 left,
+ *        +1 right; 0 does nothing), e.g. after an obstacle bypass.  If both
+ *        sensors read white the controller seeks that way (as after
+ *        losing the line past a sensor) instead of driving straight on.
+ */
+void line_ctrl_seek(line_ctrl_t * p_ctrl, int32_t side);
+
+/*!
  * @brief Run one control tick (every LB_LINE_TICK_MS).
  *
  * @param[in,out] p_ctrl         Controller; must not be NULL.

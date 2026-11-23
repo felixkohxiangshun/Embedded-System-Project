@@ -42,8 +42,20 @@
  * 1. Sensor hardware (RP2040 12-bit ADC, three IR reflectance sensors)
  * --------------------------------------------------------------------- */
 
-/* Largest value the 12-bit ADC can return. */
-#define LB_ADC_MAX_COUNT            4095
+/* Bits kept from each ADC conversion (minimum-bit rule, Tribunal 1).  The
+ * RP2040 ADC converts 12 bits but only about 8.7 of them are effective
+ * (datasheet: ENOB), so the bottom 2 are mostly noise; the line follower
+ * works on the 0..1000 darkness scale (ir_calib), where 10 bits still give
+ * about 2 steps per unit of the white-to-black span.  10 bits since
+ * 2026-11-23 (was 12). */
+#ifndef LB_ADC_BITS
+#define LB_ADC_BITS                 10
+#endif
+/* Largest value a reading can have. */
+#define LB_ADC_MAX_COUNT            ((1 << LB_ADC_BITS) - 1)
+/* A count measured or tuned at 12 bits, in LB_ADC_BITS counts (so the
+ * calibration history below stays in the units it was measured in). */
+#define LB_ADC_FROM12(c)            ((c) >> (12 - LB_ADC_BITS))
 
 /* Polarity: 1 if the sensor module outputs a HIGHER voltage over black
  * (typical for a TCRT5000 module wired to its analogue pin; applies to the
@@ -68,8 +80,8 @@
  * usual setting; verify on the car.  The two counts below stand for "bar"
  * and "paper"; the slicer only uses their difference. */
 #define LB_BC_GPIO_DARK_IS_HIGH     1
-#define LB_BC_GPIO_DARK_COUNT       3600
-#define LB_BC_GPIO_LIGHT_COUNT      500
+#define LB_BC_GPIO_DARK_COUNT       LB_ADC_FROM12(3600)
+#define LB_BC_GPIO_LIGHT_COUNT      LB_ADC_FROM12(500)
 
 /* Digital mode: a DO change counts only once the level has held this many
  * microseconds (comparator chatter is shorter).  Narrow elements at
@@ -102,12 +114,17 @@
  * dashboard).  Back to 0 / 1720 and 0 / 3218 (2026-11-09): with the raw
  * readings of this track it gives the widest gap, white 93 / 49 and black
  * 1000 / 1000, and 70 % faded ink still reads 988 / 745 (the others give
- * 464 to 714 there). */
-#define LB_WHITE_CENTER             0
-#define LB_BLACK_CENTER             1720
-#define LB_WHITE_RIGHT              0
-#define LB_BLACK_RIGHT              3218
-#define LB_CAL_SPAN_MIN             800
+ * 464 to 714 there).  2026-11-17: the right sensor read 860 at best on
+ * black (raw about 2770), under the junction threshold
+ * LB_JUNCTION_DARK_MIN 850 on anything less than the darkest ink, so its
+ * black is lowered to 2700: that black now reads 1000 (clamped) and the
+ * right sensor's white (65, raw about 210) reads about 78, still far from
+ * black.  The centre sensor is unchanged. */
+#define LB_WHITE_CENTER             LB_ADC_FROM12(0)
+#define LB_BLACK_CENTER             LB_ADC_FROM12(1720)
+#define LB_WHITE_RIGHT              LB_ADC_FROM12(0)
+#define LB_BLACK_RIGHT              LB_ADC_FROM12(2700)
+#define LB_CAL_SPAN_MIN             LB_ADC_FROM12(800)
 
 /* Largest normalised darkness (see ir_calib.h). */
 #define LB_DARK_MAX                 1000
@@ -179,6 +196,11 @@
 #endif
 #ifndef LB_STRADDLE_BLACK_MIN
 #define LB_STRADDLE_BLACK_MIN       300     /* darkness that counts as black */
+#endif
+/* STEER_F_DARK_C / _R (app_if.h): this darkness under a sensor counts as
+ * the line when Mission looks for it after an obstacle bypass. */
+#ifndef LB_STEER_DARK_MIN
+#define LB_STEER_DARK_MIN           LB_STRADDLE_BLACK_MIN
 #endif
 #ifndef LB_STRADDLE_FULL
 #define LB_STRADDLE_FULL            600     /* sensor over the line */
@@ -353,8 +375,8 @@
 #define LB_BC_WHITE_NOMINAL         LB_BC_GPIO_LIGHT_COUNT
 #define LB_BC_BLACK_NOMINAL         LB_BC_GPIO_DARK_COUNT
 #else
-#define LB_BC_WHITE_NOMINAL         400
-#define LB_BC_BLACK_NOMINAL         3200
+#define LB_BC_WHITE_NOMINAL         LB_ADC_FROM12(400)
+#define LB_BC_BLACK_NOMINAL         LB_ADC_FROM12(3200)
 #endif
 
 /* Smallest signal movement that counts as an edge, in percent of the

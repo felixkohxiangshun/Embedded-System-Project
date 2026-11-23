@@ -1,4 +1,4 @@
-import { TOPICS, decodeTelemetry, decodeDebug, decodeHeartbeat, decodeBcTrace, seqGap } from './car_model.mjs';
+import { TOPICS, encodeCommand, driveButtons, decodeTelemetry, decodeDebug, decodeHeartbeat, decodeBcTrace, seqGap } from './car_model.mjs';
 
 const $ = id => document.getElementById(id);
 const STALE_MS = 2000;
@@ -12,7 +12,8 @@ let lastDebugAt = 0;
 let telemTimes = [];
 let debugTimes = [];
 let trace = [];
-let previous = { state: null, faults: 0, bcOk: null, bcFail: null, stored: null, scanState: null, scanSide: null, bcExit: null };
+let carState = null;	// last SYS_xxx name from telemetry or heartbeat
+let previous = { state: null, faults: 0, bcOk: null, bcFail: null, stored: null, scanState: null, scanSide: null, bcExit: null, bypResult: null };
 
 function event(text) {
   const item = document.createElement('li');
@@ -41,13 +42,14 @@ function showTelemetry(t) {
   lastTelemAt = now;
   remember(telemTimes, now);
   $('sys-state').textContent = t.stateName;
+  carState = t.stateName;
   $('speed').textContent = `${t.speedMmps} mm/s`;
   $('distance').textContent = `${(t.distanceMm / 1000).toFixed(3)} m`;
   $('heading').textContent = `${t.headingDeg}°`;
   $('line-seen').textContent = t.lineSeen ? 'yes' : 'no';
   $('obstacle').textContent = t.obstacleCm === null ? 'none' : `${t.obstacleCm} cm`;
   $('hump').textContent = `${t.humpMaxMm} mm`;
-  $('shock').textContent = t.shock ? 'yes' : 'no';
+  $('lifted').textContent = t.lifted ? 'yes: motors stopped' : 'no';
   $('faults').textContent = t.faultNames.length ? t.faultNames.join(', ') : 'none';
   $('last-char').textContent = t.lastChar ?? '—';
   $('stored-char').textContent = t.storedChar ?? '—';
@@ -84,9 +86,14 @@ function showDebug(g) {
   $('ultra').textContent = g.ultraMm === null ? 'no echo' : `${g.ultraMm} mm`;
   $('scan-ultra').textContent = g.ultraMm === null ? 'no echo' : `${g.ultraMm} mm`;
   $('scan-state').textContent = g.scanStateName;
+  $('echo-rise').textContent = g.echoRiseUs === null ? 'never' : `${g.echoRiseUs} us`;
+  $('echo-edges').textContent = g.echoEdges;
   const mm = v => (v === null ? 'no echo' : `${v} mm`);
   ['scan-fl', 'scan-nl', 'scan-c', 'scan-nr', 'scan-fr'].forEach((id, i) => { $(id).textContent = mm(g.scanMm[i]); });
   $('scan-side').textContent = g.scanSideName;
+  $('byp-result').textContent = g.bypResultName;
+  if (previous.bypResult !== null && g.bypResult !== previous.bypResult && g.bypResult !== 0) event(`bypass return leg: ${g.bypResultName}`);
+  previous.bypResult = g.bypResult;
   if (previous.scanState !== null && g.scanState !== previous.scanState) event(`scan: ${g.scanStateName}`);
   if (previous.scanSide !== null && g.scanSide !== previous.scanSide && g.scanSide !== 0) {
     event(`sweep ${g.scanMm.map(mm).join(' / ')} (far left to far right): ${g.scanSideName}`);
@@ -149,6 +156,9 @@ function tick() {
   badge.classList.toggle('live', live);
   badge.lastChild.textContent = client?.connected ? (live ? 'Car live' : 'Waiting for car') : 'Broker offline';
   $('sys-state').classList.toggle('stale', !live);
+  const drive = driveButtons(carState, live, client?.connected);
+  $('btn-start').disabled = !drive.start;
+  $('btn-stop').disabled = !drive.stop;
   drawTrace();
   requestAnimationFrame(tick);
 }
@@ -178,6 +188,7 @@ function connect() {
         const hb = decodeHeartbeat(bytes);
         lastTelemAt = performance.now();
         $('sys-state').textContent = hb.stateName;
+        carState = hb.stateName;
       }
     } catch (error) {
       event(`rejected ${topic}: ${error.message}`);
@@ -185,5 +196,17 @@ function connect() {
   });
 }
 
+// QoS 1: the car subscribes to the command topic at QoS 1, so the broker
+// redelivers a command lost on the WiFi link.
+function sendCommand(name) {
+  if (!client?.connected) return;
+  const label = name.toUpperCase();
+  client.publish(TOPICS.command, encodeCommand(name), { qos: 1 }, error => {
+    event(error ? `${label} not sent: ${error.message}` : `${label} sent to the car`);
+  });
+}
+
 $('connect').addEventListener('click', connect);
+$('btn-start').addEventListener('click', () => sendCommand('start'));
+$('btn-stop').addEventListener('click', () => sendCommand('stop'));
 window.addEventListener('load', () => { connect(); requestAnimationFrame(tick); });

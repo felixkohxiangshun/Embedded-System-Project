@@ -47,7 +47,7 @@ restart the LAN broker launcher, update `MQTT_BROKER_IP` in ignored
    Loss of broker connection also triggers automatic reconnect.
 
 The fixed bytes are artificial test data, not sensor readings or real commands.
-No E_STOP/RESUME or motor actuation is connected to this page. Sensor fields are
+Remote E_STOP/RESUME were removed; the car page (car.html) has Start/Stop, sent as one byte (bit 0: 1 = START, 0 = STOP). Sensor fields are
 shown as unavailable, not invented values. Final ranges/precision can be agreed
 after this demonstration.
 

@@ -20,7 +20,7 @@
  *	-------------------------------------------------------------
  *	  motor_control/  Motor        PID speed loop, encoders, start button ISR
  *	  line_barcode/  IR sensors   1 kHz ADC sampler, Line task, Barcode task
- *	  imu_terrain/  IMU          hump and shock detection
+ *	  imu_terrain/  IMU          hump detection, lifted (upside down) stop
  *	  dashboard/  Dashboard    telemetry task, WiFi / MQTT status, JSON, commands
  *	  mission_obstacle/  Mission      system statechart, Obstacle Scan
  *
@@ -33,6 +33,22 @@
  */
 
 #include "app.h"
+
+/* 1: TEMP bench build (2026-11-17) for the ultrasonic test.  Every
+   subsystem still creates its kernel objects (no hardware is touched in
+   _init), but only Dashboard (WiFi / MQTT) and Mission/obstacle start their
+   tasks.  Motor, Line/Barcode and IMU never run, so no motor PWM, no
+   1 kHz IR sampler and no I2C.  The one GPIO bank-0 interrupt handler
+   (motor_control/gpio_isr.c) is still installed, because the ultrasonic
+   ECHO edges arrive through it; encoder counts and button presses it sees
+   go nowhere.  Restore 0. */
+#ifndef APP_ONLY_OBSTACLE
+#define APP_ONLY_OBSTACLE	0
+#endif
+
+#if APP_ONLY_OBSTACLE
+IMPORT ER gpio_isr_start(void);		/* motor_control/gpio_isr.c */
+#endif
 
 /*
  * Create and start one task (declared in app.h for every subsystem).
@@ -116,6 +132,13 @@ EXPORT INT usermain(void)
 	CHECK(mission_obstacle_init(), "mission_obstacle_init");
 
 	/* Phase 2: every subsystem starts its tasks */
+#if APP_ONLY_OBSTACLE
+	CHECK(gpio_isr_start(), "gpio_isr_start");	/* ECHO edges */
+	CHECK(dashboard_start(), "dashboard_start");
+	CHECK(mission_obstacle_start(), "mission_obstacle_start");
+	tm_printf((UB*)"APP_ONLY_OBSTACLE: only dashboard and"
+		  " mission_obstacle started\n\n");
+#else
 	CHECK(motor_control_start(), "motor_control_start");
 	CHECK(line_barcode_start(), "line_barcode_start");
 	CHECK(imu_terrain_start(), "imu_terrain_start");
@@ -123,6 +146,7 @@ EXPORT INT usermain(void)
 	CHECK(mission_obstacle_start(), "mission_obstacle_start");
 
 	tm_printf((UB*)"all subsystems started\n\n");
+#endif
 
 #if APP_TEST
 	tm_printf((UB*)"[TEST] === test run start ===\n");

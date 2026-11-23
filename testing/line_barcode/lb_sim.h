@@ -19,9 +19,9 @@ typedef struct
     double speed_wobble;    /* relative speed change while crossing (0.2) */
     double spot_mm;         /* width of the sensor spot along the travel */
     double contrast;        /* ink contrast, 1.0 = nominal black on white */
-    double noise_counts;    /* ADC noise, standard deviation in counts */
+    double noise_counts;    /* ADC noise, standard deviation, 12-bit counts */
     double flicker;         /* 100 Hz mains flicker, relative amplitude */
-    double ambient_shift;   /* constant offset added to every reading */
+    double ambient_shift;   /* constant offset added to every reading, 12-bit counts */
     double wide_ratio;      /* printed wide / narrow ratio (ideal 3.0) */
     double jitter_us;       /* sample time jitter, microseconds */
 } lb_sim_bc_cfg_t;
@@ -83,9 +83,9 @@ typedef struct
     double wheel_diff_mmps; /* wheel speed difference at full steer (120) */
     double lag_s;           /* yaw response time constant of the car */
     double delay_ms;        /* command delay: Mission, buffers, motor loop */
-    double noise_counts;    /* ADC noise (standard deviation) */
+    double noise_counts;    /* ADC noise (standard deviation), 12-bit counts */
     double flicker;         /* 100 Hz flicker, relative amplitude */
-    double ambient_shift;   /* constant offset added to every reading */
+    double ambient_shift;   /* constant offset added to every reading, 12-bit counts */
     double contrast;        /* ink contrast of the whole line (1.0) */
     double start_offset_mm; /* starting position, + = car left of the line */
     double start_heading_deg;   /* starting heading, + = pointing left */
