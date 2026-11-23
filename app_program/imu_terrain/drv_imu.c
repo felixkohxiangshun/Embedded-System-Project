@@ -4,8 +4,8 @@
  *
  *	Settings: 100 Hz, all axes on (CTRL_REG1_A = 0x57); block data update,
  *	+/-8 g, high-resolution (CTRL_REG4_A = 0xA8): 4 mg per LSB on the 12-bit
- *	value left-justified in the 16-bit output.  +/-8 g is needed because the
- *	shock threshold is 3 g away from the 1 g rest vector.  Block data update
+ *	value left-justified in the 16-bit output.  (+/-8 g was chosen for the
+ *	3 g shock threshold, since dropped; it is kept.)  Block data update
  *	stops the 6-byte read mixing two samples.
  *
  *	All three axes are read in ONE transfer (sub-address auto-increment), so

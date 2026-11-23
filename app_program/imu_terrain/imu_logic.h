@@ -1,6 +1,6 @@
 /*
  *	imu_logic.h
- *	IMU/terrain -- pure hump-height / shock logic (no hardware, no kernel).
+ *	IMU/terrain -- pure hump-height / lift logic (no hardware, no kernel).
  *	Unit-tested on a PC (testing/host) as well as on the target.
  *	Integer only, 32-bit only: the RP2040's Cortex-M0+ has no FPU.
  *
@@ -42,8 +42,16 @@
  *	  check  after the hump the height should come back to ~0; what is left
  *	         is kept in residual_um (a measure of the pitch error).
  *
- *	Shock (FR-06): the acceleration vector is more than SHOCK_MG away from
- *	the rest vector for fewer than SHOCK_MAX_SAMPLES samples.
+ *	Lift (2026-11-17, replaces the IMU collision / SHOCK detection, which
+ *	the requirement dropped): at the end of the demo the car is lifted AND
+ *	turned upside down, at any speed.  Upside down, gravity points the other
+ *	way along the up axis, so 'up' takes the opposite sign to its rest
+ *	value.  Beyond LIFT_INV_MG on the wrong side for LIFT_CONFIRM_SAMPLES in
+ *	a row is LIFTED: reported once (Mission stops the motors); any hump
+ *	under way is given up, and nothing is measured until the car has been
+ *	the right way up for LIFT_CLEAR_SAMPLES.  A hump or a knock never
+ *	reverses gravity for 100 ms.  Works before calibration too (the rest
+ *	vector then defaults to 1 g up).
  *
  *	*** Every constant marked [CAL] is a placeholder until measured on the car.
  */
@@ -56,14 +64,14 @@
 #define IMU_MONITORING		1
 #define IMU_HUMP_TRACKING	2
 #define IMU_HUMP_COMPLETE	3	/* one sample, then back to MONITORING */
-#define IMU_SHOCK_EVENT		4	/* one sample, then back to MONITORING */
+#define IMU_LIFTED		4	/* upside down: lifted, motors stopped */
 #define IMU_SENSOR_FAULT	5
 
 /* What imu_feed() reports for a sample */
 #define IMU_EV_NONE		0
 #define IMU_EV_HUMP_START	1	/* hump confirmed (>= HUMP_MIN_UM) */
 #define IMU_EV_HUMP_DONE	2	/* height_mm valid */
-#define IMU_EV_SHOCK		3
+#define IMU_EV_LIFTED		3	/* turned upside down (once per lift) */
 
 /* ---- Which method (see the top of this file) ---- */
 #define HUMP_MODE_ROLL		0	/* narrow hump under one wheel (our course) */
@@ -135,9 +143,12 @@
 #define HUMP_MAX_MM		63
 #endif
 
-/* ---- Shock (FR-06, telemetry only) ---- */
-#define SHOCK_MG		3000	/* 3 g away from the rest vector ... */
-#define SHOCK_MAX_SAMPLES	3	/* ... for fewer than 3 samples */
+/* ---- Lift: upside down = end of the run ---- */
+#define LIFT_INV_MG		500	/* 'up' this far past 0 on the far side of
+					   its rest value: tilted beyond ~120 deg */
+#define LIFT_CONFIRM_SAMPLES	10	/* 100 ms upside down = lifted */
+#define LIFT_CLEAR_SAMPLES	50	/* 500 ms right way up = on the floor again */
+#define LIFT_UPRIGHT_MG		300	/* 'up' within this of rest = right way up */
 
 /* Accelerometer sample in car axes, mg */
 typedef struct {
@@ -197,9 +208,9 @@ typedef struct {
 	INT	peak_um;
 	W	len_um;
 
-	/* shock */
-	INT	over_cnt;
-	BOOL	shock_pending;
+	/* lift */
+	INT	inv_cnt;		/* consecutive samples upside down */
+	INT	up_cnt;			/* LIFTED: consecutive samples right way up */
 
 	/* results */
 	INT	height_mm;		/* last completed hump */

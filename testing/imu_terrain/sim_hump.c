@@ -324,8 +324,8 @@ static OUT run(const CFG *c)
 				o.peak_um = l.height_mm * 1000;
 				o.residual_um = l.residual_um;
 				t_slow = -1;
-			} else if (ev == IMU_EV_SHOCK) {
-				o.n_shock++;
+			} else if (ev == IMU_EV_LIFTED) {
+				o.n_shock++;	/* lifts (shock detection was replaced) */
 			}
 		}
 	}
@@ -432,13 +432,13 @@ int main(void)
 	c = base; c.shock_mg = 3500; c.shock_len = 1;
 	{
 		OUT o = run(&c);
-		printf("  %-34s  shocks %d  %s\n", "3.5 g knock, 1 sample", o.n_shock, (o.n_shock == 1) ? "PASS" : "FAIL");
-		if (o.n_shock != 1) fails++;
+		printf("  %-34s  lifts %d  %s\n", "3.5 g knock, 1 sample: not a lift", o.n_shock, (o.n_shock == 0) ? "PASS" : "FAIL");
+		if (o.n_shock != 0) fails++;
 	}
 	c = base; c.shock_mg = 3500; c.shock_len = 5;
 	{
 		OUT o = run(&c);
-		printf("  %-34s  shocks %d  %s\n", "3.5 g for 5 samples (sustained)", o.n_shock, (o.n_shock == 0) ? "PASS" : "FAIL");
+		printf("  %-34s  lifts %d  %s\n", "3.5 g for 5 samples: not a lift", o.n_shock, (o.n_shock == 0) ? "PASS" : "FAIL");
 		if (o.n_shock != 0) fails++;
 	}
 

@@ -37,9 +37,9 @@ typedef struct
 /*!
  * @brief Apply the sensor polarity so a higher count always means darker.
  *
- * @param[in] raw_adc  Raw 12-bit ADC result, 0 to 4095.
+ * @param[in] raw_adc  ADC result, 0 to LB_ADC_MAX_COUNT (LB_ADC_BITS bits).
  *
- * @return Dark-scale count, 0 to 4095.
+ * @return Dark-scale count, 0 to LB_ADC_MAX_COUNT.
  */
 int32_t ir_calib_raw_to_dark(uint16_t raw_adc);
 
@@ -73,7 +73,7 @@ void ir_calib_probe_init(ir_calib_probe_t * p_probe);
  * @brief Add one dark-scale sample to a probe.
  *
  * @param[in,out] p_probe     Probe; must not be NULL.
- * @param[in]     dark_count  Dark-scale count, 0 to 4095.
+ * @param[in]     dark_count  Dark-scale count, 0 to LB_ADC_MAX_COUNT.
  */
 void ir_calib_probe_push(ir_calib_probe_t * p_probe, int32_t dark_count);
 

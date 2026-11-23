@@ -97,9 +97,10 @@ EXPORT void dashboard_test(void)
 
 	TEST_CHECK("S4-U03", dash_format_telem(&t, buf, 20) == -1, "overflow is detected");
 
-	TEST_CHECK("S4-U04", dash_parse_cmd("E_STOP", 6) == MQTTCMD_ESTOP &&
-		   dash_parse_cmd("{\"cmd\":\"RESUME\"}", 16) == MQTTCMD_RESUME &&
-		   dash_parse_cmd("hello", 5) == 0, "E_STOP / RESUME parsed, junk ignored");
+	TEST_CHECK("S4-U04", dash_parse_cmd("\x01", 1) == MQTTCMD_START &&
+		   dash_parse_cmd("\x00", 1) == MQTTCMD_STOP &&
+		   dash_parse_cmd("\x03", 1) == 0 && dash_parse_cmd("START", 5) == 0,
+		   "1-byte START / STOP parsed, anything else ignored");
 
 	dash_init(&d);
 	step(&d, FALSE, 0, FALSE, 100);

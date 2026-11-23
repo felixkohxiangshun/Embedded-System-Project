@@ -31,6 +31,9 @@
 #include "bc_decode.h"
 #include "lb_sim.h"
 
+/* 12-bit counts per LB_ADC_BITS count */
+#define ADC_SCALE ((double)(1 << (12 - LB_ADC_BITS)))
+
 #define PROFILE_STEP_MM     0.05    /* resolution of the printed pattern */
 #define PROFILE_LEAD_MM     60.0    /* paper in front of the code */
 #define PROFILE_TAIL_MM     60.0    /* paper behind the code */
@@ -251,11 +254,11 @@ lb_sim_bc_run (lb_sim_bc_cfg_t const * p_cfg, char symbol)
                     + (p_cfg->contrast
                        * (double)(LB_BC_BLACK_NOMINAL - LB_BC_WHITE_NOMINAL)
                        * spot_signal(&profile, x_mm, p_cfg->spot_mm));
-            count += p_cfg->ambient_shift;
+            count += p_cfg->ambient_shift / ADC_SCALE;   /* 12-bit counts */
             count *= 1.0 + (p_cfg->flicker
                            * sin((2.0 * PI_VALUE * 100.0 * t_ms / 1000.0)
                                  + phase));
-            count += p_cfg->noise_counts * rng_gauss();
+            count += (p_cfg->noise_counts / ADC_SCALE) * rng_gauss();
 
             dark = (int32_t)floor(count + 0.5);
             if (dark < 0)

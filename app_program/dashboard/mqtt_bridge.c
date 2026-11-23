@@ -30,13 +30,14 @@
 
 #define TOPIC_TELEM	"csc11/dev/car/telemetry"
 #define TOPIC_DEBUG	"csc11/dev/car/debug"
+#define TOPIC_BARCODE	"csc11/dev/car/barcode"
 #define TOPIC_HB	"csc11/dev/car/heartbeat"
 #define TOPIC_CMD	"csc11/dev/car/cmd"
 
 #define BACKOFF_MIN_MS	1000u
 #define BACKOFF_MAX_MS	16000u
 #define CMD_MAX		32u	/* longest command accepted */
-#define FRAME_MAX	64u	/* longest frame published */
+#define FRAME_MAX	96u	/* longest frame published (barcode trace, 81) */
 
 static mqtt_client_t *client;
 static uint8_t  connecting, online, retry_pending, rx_active;
@@ -133,6 +134,7 @@ static const char *topic_for(uint8_t kind)
 	case DASH_BRIDGE_TELEM:		return TOPIC_TELEM;
 	case DASH_BRIDGE_DEBUG:		return TOPIC_DEBUG;
 	case DASH_BRIDGE_HEARTBEAT:	return TOPIC_HB;
+	case DASH_BRIDGE_BARCODE:	return TOPIC_BARCODE;
 	default:			return NULL;
 	}
 }

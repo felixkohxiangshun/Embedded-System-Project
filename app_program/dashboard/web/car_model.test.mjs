@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { decodeTelemetry, decodeDebug, decodeHeartbeat, seqGap } from './car_model.mjs';
+import { decodeTelemetry, decodeDebug, decodeHeartbeat, seqGap, driveButtons, encodeCommand } from './car_model.mjs';
 
 // Same LSB-first packer as protocol_bits.c, to build test frames.
 function pack(fields, bytes) {
@@ -30,7 +30,7 @@ test('telemetry: every field round-trips, 11 bytes', () => {
   assert.equal(t.lastChar, 'A');
   assert.equal(t.storedChar, null);
   assert.equal(t.humpMaxMm, 42);
-  assert.equal(t.shock, true);
+  assert.equal(t.lifted, true);
   assert.deepEqual(t.faultNames, ['IMU', 'LINE', 'MISSION_TMO']);
 });
 
@@ -40,15 +40,25 @@ test('telemetry: negative speed and wrong length', () => {
   assert.throws(() => decodeTelemetry(new Uint8Array(10)));
 });
 
-test('debug: signed fields and counters round-trip, 12 bytes', () => {
+test('debug: signed fields and counters round-trip, 24 bytes', () => {
   const frame = pack([[200, 255], [600, 1023], [480, 1023], [-120 + 512, 1023], [-700 + 1024, 2047],
-    [2, 3], [60, 255], [1, 255], [3, 255], [1, 31], [289, 4095], [1, 7]], 12);
+    [2, 3], [60, 255], [1, 255], [3, 255], [1, 31], [289, 4095], [1, 7], [6, 15], [30, 63],
+    [3, 7], [1200, 4095], [900, 4095], [250, 4095], [700, 4095], [0, 4095], [2, 3], [3, 7], [480, 4095], [2, 15], [1, 3]], 24);
   const g = decodeDebug(frame);
   assert.deepEqual([g.darkC, g.darkR, g.err, g.steer], [600, 480, -120, -700]);
   assert.equal(g.modeName, 'SWEEP');
   assert.deepEqual([g.bcEdges, g.bcOk, g.bcFail, g.bcLast], [60, 1, 3, 'B']);
   assert.equal(g.ultraMm, 289);
   assert.equal(g.motorName, 'DRIVING');
+  assert.equal(g.bcResult, 'SPEED (speed changed)');
+  assert.equal(g.bcCount, 30);
+  assert.equal(g.scanStateName, 'MEASURE');
+  assert.deepEqual(g.scanMm, [1200, 900, 250, 700, null]);
+  assert.equal(g.scanSideName, 'go RIGHT');
+  assert.equal(g.bcExitName, 'distance limit');
+  assert.equal(g.echoRiseUs, 480);
+  assert.equal(g.echoEdges, 2);
+  assert.equal(g.bypResultName, 'stopped on the line');
 });
 
 test('heartbeat and sequence gaps', () => {
@@ -56,4 +66,27 @@ test('heartbeat and sequence gaps', () => {
   assert.equal(seqGap(null, 5), 0);
   assert.equal(seqGap(254, 1), 2);
   assert.equal(seqGap(9, 10), 0);
+});
+
+test('barcode trace: widths in 0.1 ms, bar first', async () => {
+  const { decodeBcTrace } = await import('./car_model.mjs');
+  const t = decodeBcTrace(Uint8Array.from([5, 2, 3, 0x7b, 0x00, 0x10, 0x27]));
+  assert.equal(t.seq, 5);
+  assert.equal(t.result, 'COUNT (not 30 edges)');
+  assert.deepEqual(t.widthsMs, [12.3, 1000]);
+  assert.throws(() => decodeBcTrace(Uint8Array.from([5, 2, 3, 1])));
+});
+
+test('drive buttons: Start only from IDLE, Stop only while running, both off when not live', () => {
+  assert.deepEqual(driveButtons('IDLE', true, true), { start: true, stop: false });
+  assert.deepEqual(driveButtons('LINE_FOLLOW', true, true), { start: false, stop: true });
+  assert.deepEqual(driveButtons('OBSTACLE_BYPASS', true, true), { start: false, stop: true });
+  assert.deepEqual(driveButtons('FAULT_RECOVERY', true, true), { start: false, stop: true });
+  assert.deepEqual(driveButtons('INIT', true, true), { start: false, stop: false });
+  assert.deepEqual(driveButtons('IDLE', false, true), { start: false, stop: false });
+  assert.deepEqual(driveButtons('LINE_FOLLOW', true, false), { start: false, stop: false });
+  assert.deepEqual(driveButtons(null, true, true), { start: false, stop: false });
+  assert.deepEqual([...encodeCommand('start')], [1]);
+  assert.deepEqual([...encodeCommand('stop')], [0]);
+  assert.throws(() => encodeCommand('estop'));
 });

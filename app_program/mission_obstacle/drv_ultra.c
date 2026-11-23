@@ -33,14 +33,33 @@
 #define ECHO_EDGE_BITS		(0xCu << (4 * (PIN_ULTRA_ECHO & 7)))	/* edge low | edge high */
 #define SERVO_SLICE		6
 #define SERVO_TOP		19999		/* 20 ms period at 1 MHz */
-#define SERVO_CENTER_US		1500
+#define SERVO_MIN_US		500
+#define SERVO_MAX_US		2500
 #define SERVO_SLICE_DIV		(PWM_BASE + 0x14 * SERVO_SLICE + PWM_CHx_DIV)
 
 LOCAL ECHO echo;		/* shared by the interrupt and scan_task */
 
+/* Debug, for the sensor test (read with the debug probe): time of the last
+   trigger, of the first rise and first fall after it, the number of ECHO
+   edges since the trigger, and how many pings had no fall at all. */
+EXPORT volatile UW s5_echo_dbg[5];
+/* The same, latched once per ping for the dashboard: how long after the
+   trigger ECHO first went high (us, 0 = it never did), and how many ECHO
+   edges arrived.  A healthy HC-SR04 rises about 450-500 us after the
+   trigger and gives exactly 2 edges. */
+EXPORT volatile UW s5_echo_rise_us;
+EXPORT volatile UW s5_echo_edges;
+
 /* Called from the bank-0 GPIO interrupt (gpio_isr.c).  Never blocks. */
 EXPORT void ultra_echo_isr(UW now_us, UW edges)
 {
+	s5_echo_dbg[3]++;
+	if ((edges & ECHO_EDGE_RISE) && s5_echo_dbg[1] == 0) {
+		s5_echo_dbg[1] = now_us;
+	}
+	if ((edges & ECHO_EDGE_FALL) && s5_echo_dbg[2] == 0) {
+		s5_echo_dbg[2] = now_us;
+	}
 	if (echo_edge(&echo, now_us, edges)) {
 		tk_set_flg(flg_echo, ECHO_FLG_DONE);
 	}
@@ -61,15 +80,20 @@ EXPORT void ultra_hw_init(void)
 	pwm_set_pin(PIN_SERVO_PWM);
 	out_w(SERVO_SLICE_DIV, 125u << 4);		/* divider 125.0 (8.4 fixed point) */
 	pwm_set_wrap(PIN_SERVO_PWM, SERVO_TOP);
-	pwm_set_cc(PIN_SERVO_PWM, SERVO_CENTER_US);
+	pwm_set_cc(PIN_SERVO_PWM, SCAN_US_CENTRE);
 	pwm_set_enabled(PIN_SERVO_PWM, TRUE);
 }
 
-/* Angle in degrees, - = left of straight ahead.  A hobby servo moves about
-   90 degrees for 1000 us, so 1 degree is about 5.56 us. [CAL] */
-EXPORT void servo_set_deg(INT deg)
+/* Pulse width in us (scan_logic.h has the calibrated values).  Kept inside
+   what any hobby servo takes. */
+EXPORT void servo_set_us(INT us)
 {
-	pwm_set_cc(PIN_SERVO_PWM, (UW)(SERVO_CENTER_US + (deg * 50) / 9));
+	if (us < SERVO_MIN_US) {
+		us = SERVO_MIN_US;
+	} else if (us > SERVO_MAX_US) {
+		us = SERVO_MAX_US;
+	}
+	pwm_set_cc(PIN_SERVO_PWM, (UW)us);
 }
 
 LOCAL void busy_us(UW us)
@@ -81,26 +105,46 @@ LOCAL void busy_us(UW us)
 	}
 }
 
-/* One measurement in mm; SCAN_NO_ECHO (0) if no valid echo came back.
+/* One ping: the echo pulse width in us (converted from timer counts, see
+   TIMER_COUNTS_TO_US), 0 if none came back in time.
    Blocks (no CPU use) for at most ECHO_TIMEOUT_MS. */
-EXPORT INT ultra_ping_mm(void)
+LOCAL UW ping_width_us(void)
 {
 	UINT ptn;
 	ER   er;
-	INT  mm;
 
 	tk_clr_flg(flg_echo, 0);		/* drop a completion left over from a late echo */
 	echo_arm(&echo);
 
+	s5_echo_dbg[1] = 0;
+	s5_echo_dbg[2] = 0;
+	s5_echo_dbg[3] = 0;
 	gpio_set_val(PIN_ULTRA_TRIG, 1);
-	busy_us(10);
+	busy_us(10);		/* 10 counts = 427 us; the sensor needs >= 10 us */
 	gpio_set_val(PIN_ULTRA_TRIG, 0);
+	s5_echo_dbg[0] = APP_NOW_US();
 
 	er = tk_wai_flg(flg_echo, ECHO_FLG_DONE, TWF_ORW | TWF_BITCLR, &ptn, ECHO_TIMEOUT_MS);
+	s5_echo_edges = s5_echo_dbg[3];
+	s5_echo_rise_us = (s5_echo_dbg[1] != 0) ?
+		TIMER_COUNTS_TO_US(s5_echo_dbg[1] - s5_echo_dbg[0]) : 0;
 	if (er < E_OK) {
 		echo_disarm(&echo);		/* ignore the edge if it arrives later */
-		return SCAN_NO_ECHO;
+		s5_echo_dbg[4]++;
+		return 0;
 	}
-	mm = echo_us_to_mm(echo.width_us);
-	return mm;
+	return TIMER_COUNTS_TO_US(echo.width_us);	/* timer counts -> us */
+}
+
+/* One measurement in mm; SCAN_NO_ECHO (0) if no valid echo came back. */
+EXPORT INT ultra_ping_mm(void)
+{
+	return echo_us_to_mm(ping_width_us());
+}
+
+/* Sensor test only: the distance with no plausibility limits (no
+   SCAN_MIN_MM, no ECHO_MAX_US), so near self-echoes are visible too. */
+EXPORT INT ultra_ping_raw_mm(void)
+{
+	return (INT)((ping_width_us() * 343) / 2000);
 }

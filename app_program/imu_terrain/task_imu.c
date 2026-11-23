@@ -3,13 +3,13 @@
  *	IMU/terrain -- the IMU / terrain task (design review 6.2).
  *
  *	States  CALIBRATING, MONITORING, HUMP_TRACKING, HUMP_COMPLETE,
- *	        SHOCK_EVENT, SENSOR_FAULT   (the maths is in imu_logic.c)
+ *	        LIFTED, SENSOR_FAULT   (the maths is in imu_logic.c)
  *
  *	Every 10 ms:
  *	  1. read enc_left / enc_right / motor_state from app_state (TMO_POL)
  *	  2. distance since the last sample, from the encoder counts
  *	  3. read X, Y, Z from the accelerometer
- *	  4. imu_feed(): pitch, surface height, hump / shock events
+ *	  4. imu_feed(): pitch, surface height, hump / lift events
  *	  5. post events to Mission on mbf_terrain
  *	A failed I2C read keeps its distance for the next good sample.  Three in
  *	a row put the task in SENSOR_FAULT: it keeps retrying and posts
@@ -259,8 +259,8 @@ EXPORT void imu_task(INT stacd, void *exinf)
 		case IMU_EV_HUMP_DONE:
 			hump_done();
 			break;
-		case IMU_EV_SHOCK:
-			post(TERR_SHOCK);
+		case IMU_EV_LIFTED:
+			post(TERR_LIFTED);	/* Mission stops the motors */
 			break;
 		default:
 			break;

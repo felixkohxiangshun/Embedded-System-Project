@@ -84,7 +84,7 @@ void bc_slicer_init(bc_slicer_t * p_slicer);
  * one edge is reported per call.
  *
  * @param[in,out] p_slicer  Slicer state; must not be NULL.
- * @param[in]     dark      Dark-scale count (0 to 4095, higher is darker).
+ * @param[in]     dark      Dark-scale count (0 to LB_ADC_MAX_COUNT, higher is darker).
  * @param[in]     now_us    Free-running microsecond time of this sample.
  * @param[out]    p_edge    Filled only when the function returns true.
  *

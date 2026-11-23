@@ -14,11 +14,12 @@ Define a test here before running it. Test IDs never change.
 | S3-U01 | calibration at rest removes the mounting tilt; flat road is quiet | FR-04 | auto, host | `imu_terrain_test.c`: 1.2 s still with a 2° tilted board, then 1.5 m of flat road | `[TEST] S3-U01 PASS` |
 | S3-U02 | hump start and completion; height from the roll (hump under one wheel) | FR-04, NFR-07 | auto, host | 20 mm trapezoid hump (60 mm ramps, 50 mm top) under the right wheel | start + done, height 20 ± 2 mm |
 | S3-U03 | tallest hump of the run is kept | FR-05 | auto, host | then a 10 mm hump | height 10 ± 2 mm, tallest still the first |
-| S3-U04 | knock > 3 g from the rest vector for < 3 samples = SHOCK | FR-06 | auto, host | 3.5 g on the forward axis for 2 samples | `[TEST] S3-U04 PASS` |
-| S3-U05 | a long high reading is not a SHOCK | FR-06 | auto, host | 3.5 g for 5 samples | `[TEST] S3-U05 PASS` |
+| S3-U04 | (2026-11-17, replaces SHOCK: IMU collision detection was dropped) up axis past −500 mg (opposite its rest sign) for 100 ms = LIFTED, reported once; held upside down and shaken stays LIFTED; 0.5 s back on its wheels → MONITORING with the baseline kept | FR-06 (revised: lift stops the run) | auto, host | upside down 9 then 10 samples; shaken; righted | `[TEST] S3-U04a..d PASS` |
+| S3-U05 | not a lift: a long 3.5 g knock, lying on its side, a 20 mm hump; a lift before calibration still counts | FR-06 (revised) | auto, host | 3.5 g for 5 samples; side axis 1 g; hump run | `[TEST] S3-U05a..d PASS` |
+| S3-M10 | floor: lift the running car and turn it over (slowly, then quickly): wheels stop within about 0.2 s, dashboard shows IDLE and "Lifted: yes" | FR-06 (revised) | manual | full build | wheels stop every time, never while driving normally |
 | S3-U06 | fault ignores samples; recovery keeps the baseline (calibrated) or recalibrates (not yet calibrated) | FR-19 | auto, host | `imu_fault()` / `imu_recovered()` | `[TEST] S3-U06 PASS` |
 | S3-U07 | IMU task runs every 10 ms even with a missing sensor | NFR-06 | auto | `imu_terrain_test.c` | `[TEST] S3-U07 PASS` |
-| S3-U08 | a knock does not look like a hump | FR-04, FR-06 | auto, host | same run as S3-U04 | no hump events |
+| S3-U08 | a knock looks like neither a hump nor a lift | FR-04, FR-06 | auto, host | 3.5 g for 2 samples | no hump or lift events |
 | S3-U09 | hump above `HUMP_MAX_MM` (63 mm, 6 bits) is reported but not kept as tallest | FR-05, Tribunal 1 v.C | auto, host | 70 mm hump after a 20 mm one | done, height > 63, tallest unchanged |
 | S3-U10 | turning during a hump gives it up (no false height) | FR-04 | auto, host | turn starts on the hump | no HUMP_DONE, back to MONITORING |
 | S3-U11 | encoder counts → µm without rounding drift | FR-04 | auto, host | 1000 × 30 counts | 1 220 799 ± 1 µm |

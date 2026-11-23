@@ -54,8 +54,11 @@ static void     run_tick(line_run_t * p_run);
 static int32_t  elapsed_ms(line_run_t * p_run);
 static bool     mission_follows_line(bool b_previous);
 static uint32_t read_distance(uint32_t previous_mm);
+static int32_t  read_line_hint(void);
 static void     post_steer(line_run_t * p_run,
-                           line_recov_out_t const * p_recov);
+                           line_recov_out_t const * p_recov,
+                           int32_t dark_centre,
+                           int32_t dark_right);
 static void     update_stats(line_ctrl_out_t const * p_ctrl,
                              line_recov_out_t const * p_recov,
                              int32_t dark_centre,
@@ -130,6 +133,10 @@ run_tick (line_run_t * p_run)
     if (b_follow && (!p_run->b_following))
     {
         line_ctrl_restart(&p_run->ctrl, 0);
+
+        /* After an obstacle bypass Mission says which side the line is on:
+         * if the car is on white, seek that way instead of driving on. */
+        line_ctrl_seek(&p_run->ctrl, read_line_hint());
         line_recov_init(&p_run->recov);
         line_junction_init(&p_run->junction);
         p_run->b_jct_pending = false;
@@ -168,7 +175,7 @@ run_tick (line_run_t * p_run)
     line_recov_step(&p_run->recov, &recov_in, &recov_out);
 
     /* 4. Post to Mission and publish the counters. */
-    post_steer(p_run, &recov_out);
+    post_steer(p_run, &recov_out, dark_c, dark_r);
     update_stats(&ctrl_out, &recov_out, dark_c, dark_r, dt_ms);
 
     return;
@@ -265,6 +272,29 @@ mission_follows_line (bool b_previous)
  *
  * @return Distance in millimetres.
  */
+/*!
+ * @brief The side the line is on, from Mission after an obstacle bypass
+ *        (app_state.line_hint: -1 left, +1 right, 0 none).
+ */
+static int32_t
+read_line_hint (void)
+{
+    int32_t hint = 0;
+
+    if (E_OK == state_lock(TMO_POL))
+    {
+        /* Cast: line_hint is the kernel's INT, -1 to +1. */
+        hint = (int32_t)app_state.line_hint;
+        state_unlock();
+    }
+    else
+    {
+        /* Lock busy: no hint. */
+    }
+
+    return (hint);
+}
+
 static uint32_t
 read_distance (uint32_t previous_mm)
 {
@@ -290,13 +320,36 @@ read_distance (uint32_t previous_mm)
  *        report is kept and sent again until it is delivered.
  */
 static void
-post_steer (line_run_t * p_run, line_recov_out_t const * p_recov)
+post_steer (line_run_t * p_run,
+            line_recov_out_t const * p_recov,
+            int32_t dark_centre,
+            int32_t dark_right)
 {
     MSG_STEER msg;
 
     /* Casts: MSG_STEER uses the kernel's INT and UB types (app_if.h). */
     msg.steer = (INT)p_recov->steer;
     msg.flags = (UB)p_recov->flags;
+
+    /* Black under each sensor right now, whatever the car is doing:
+     * Mission uses them to find the line again after an obstacle bypass. */
+    if (dark_centre >= LB_STEER_DARK_MIN)
+    {
+        msg.flags |= STEER_F_DARK_C;
+    }
+    else
+    {
+        /* Centre sensor on white. */
+    }
+
+    if (dark_right >= LB_STEER_DARK_MIN)
+    {
+        msg.flags |= STEER_F_DARK_R;
+    }
+    else
+    {
+        /* Right sensor on white. */
+    }
 
     if (p_run->b_jct_pending)
     {

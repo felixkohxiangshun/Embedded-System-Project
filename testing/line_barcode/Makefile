@@ -1,7 +1,7 @@
 # Host (PC) tests of the line and barcode subsystem.  No board, no kernel.
 #   cd testing/line_barcode && make run
 LB   = ../../app_program/line_barcode
-SRC  = $(LB)/bc_decode.c $(LB)/bc_stream.c $(LB)/bc_slicer.c \
+SRC  = $(LB)/bc_decode.c $(LB)/bc_stream.c $(LB)/bc_slicer.c $(LB)/bc_level.c \
        $(LB)/ir_calib.c  $(LB)/ir_filter.c $(LB)/line_ctrl.c \
        $(LB)/line_recov.c lb_sim_bc.c lb_sim_line.c
 

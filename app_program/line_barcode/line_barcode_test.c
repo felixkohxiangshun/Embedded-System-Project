@@ -153,19 +153,19 @@ line_barcode_test (void)
               (INT)g_lb_stats.sampler_max_us);
 
     /* S2-T04: the sensors are alive.  A converter or wiring fault shows as
-     * every sensor stuck at 0 or at 4095.  The barcode sensor is digital and
-     * reports one of two fixed counts, so it never reads exactly 0 or 4095. */
+     * every sensor stuck at 0 or at full scale.  The barcode sensor is digital and
+     * reports one of two fixed counts, so it never reads exactly 0 or full scale. */
     dark_c = ir_driver_get_dark(IR_CHANNEL_CENTRE);
     dark_r = ir_driver_get_dark(IR_CHANNEL_RIGHT);
     dark_b = ir_driver_get_dark(IR_CHANNEL_BARCODE);
-    b_alive = ((dark_c > 20) && (dark_c < 4075))
-              || ((dark_r > 20) && (dark_r < 4075));
+    b_alive = ((dark_c > 20) && (dark_c < (LB_ADC_MAX_COUNT - 20)))
+              || ((dark_r > 20) && (dark_r < (LB_ADC_MAX_COUNT - 20)));
 #if (LB_BC_USE_GPIO_LEVEL == 0)
     /* Only in analogue mode: the digital level is always one of the two
      * fixed counts, so including it would make this check always pass. */
-    b_alive = b_alive || ((dark_b > 20) && (dark_b < 4075));
+    b_alive = b_alive || ((dark_b > 20) && (dark_b < (LB_ADC_MAX_COUNT - 20)));
 #endif
-    TEST_CHECK("S2-T04", b_alive, "sensor readings are not stuck at 0 or 4095");
+    TEST_CHECK("S2-T04", b_alive, "sensor readings are not stuck at 0 or full scale");
     tm_printf((UB*)"       (dark scale now: centre %d, right %d, barcode %d)\n",
               (INT)dark_c, (INT)dark_r, (INT)dark_b);
 
@@ -182,12 +182,13 @@ line_barcode_test (void)
     TEST_CHECK("INT-01b", g_lb_stats.edges_dropped == start_drops,
                "no edge was lost between the sampler and the barcode task");
 
-    /* A code that is not a command must be reported as a failure. */
+    /* Every letter A to Z is a command (the movement comes over MQTT). */
     start_decoded = g_lb_stats.bc_decoded;
     inject_code("WNNNWWNNN");                   /* the character 'F' */
     (void)tk_dly_tsk(300);
-    TEST_CHECK("INT-01c", g_lb_stats.bc_decoded == start_decoded,
-               "a valid Code 39 character that is not A-D is not a command");
+    TEST_CHECK("INT-01c", (g_lb_stats.bc_decoded == (start_decoded + 1u))
+               && ('F' == g_lb_stats.bc_last),
+               "a letter outside A-D ('F') is decoded too");
 
     TEST_SUMMARY("line_barcode");
 

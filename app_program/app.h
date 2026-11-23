@@ -36,7 +36,7 @@
 #define PIN_IMU_SCL		5
 #define PIN_ULTRA_ECHO		16
 #define PIN_ULTRA_TRIG		17
-#define PIN_LED_STATUS		18
+#define PIN_LED_STATUS		18	/* Robo Pico NeoPixel RGB LEDs (drv_rgb.c) */
 #define PIN_BTN_START		20	/* active low */
 #define PIN_BTN_2		21	/* unused so far */
 #define PIN_IR_RIGHT		26	/* ADC0, right of the line sensor pair */
@@ -52,23 +52,28 @@
  *      review "Highest (1)"  -> 12   Motor
  *      review "High (2)"     -> 13   Line Tracking
  *      review "Medium (3)"   -> 14   Mission
- *      review "Medium (4)"   -> 15   IMU          (10 ms)
- *                               16   Barcode      (event, drains mbf_edge)
- *                               17   Obstacle Scan (60 ms)
+ *      review "Medium (4)"   -> 15   Obstacle Scan (60 ms)
+ *                               16   IMU          (10 ms)
+ *                               17   Barcode      (event, drains mbf_edge)
  *      review "Low (5)"      -> 18   Telemetry    (500 ms)
  *                               19   Dashboard
  *
  *  Every task has its own level (Tribunal 1): the kernel does not
  *  time-slice tasks of equal priority, so a tie would let one task hold
- *  the CPU until it blocks.  Inside one review rank the shorter period
- *  goes first (rate monotonic).  TEAM.md section 4 has the full table.
+ *  the CPU until it blocks.  Inside the medium rank the order is by how
+ *  urgent the event is (2026-11-23): an obstacle ahead first, then humps
+ *  and overturns (IMU), then barcode decoding last, since it works on
+ *  edges already timestamped and buffered by the 1 kHz handler (mbf_edge,
+ *  64 edges) and a short delay costs no accuracy.  Each of the three runs
+ *  briefly and blocks, so none starves the others.  TEAM.md section 4 has
+ *  the full table.
  * --------------------------------------------------------------------- */
 #define PRI_MOTOR		12
 #define PRI_LINE		13
 #define PRI_MISSION		14
-#define PRI_IMU			15
-#define PRI_BARCODE		16
-#define PRI_SCAN		17
+#define PRI_SCAN		15
+#define PRI_IMU			16
+#define PRI_BARCODE		17
 #define PRI_TELEMETRY		18
 #define PRI_DASHBOARD		19
 
@@ -88,7 +93,7 @@ IMPORT ID app_start_task(FP entry, PRI pri, UW prc, const char *name);
  *
  *    motor_control/     Motor, encoders, button ISR      (Dave)
  *    line_barcode/      IR sampler, Line, Barcode        (Vania)
- *    imu_terrain/       IMU hump and shock               (Sook Yee)
+ *    imu_terrain/       IMU hump and lift                (Sook Yee)
  *    dashboard/         Telemetry, WiFi / MQTT status   (Jun Kai)
  *    mission_obstacle/  Mission, Obstacle scan          (Felix)
  * --------------------------------------------------------------------- */
@@ -120,6 +125,8 @@ IMPORT void mission_obstacle_test(void);
 #define ECHO_EDGE_RISE		0x1
 #define ECHO_EDGE_FALL		0x2
 IMPORT void ultra_echo_isr(UW now_us, UW edges);
+/* Barcode DO (GP28) edge, from the same bank-0 handler (line_barcode/ir_driver.c) */
+IMPORT void lb_bc_gpio_isr(UW now_us);
 
 /* Print a readable message if a kernel call failed (negative error code) */
 #define CHECK(er, what)							\

@@ -7,7 +7,8 @@
  * What the subsystem does (design review section 6.1, FR-01 to FR-03):
  *  - follows the black line with the centre and right IR sensors, using
  *    a PD controller and a recovery routine for faded or lost lines, and
- *  - reads Code 39 "*X*" barcodes (X = A to D) with the barcode IR sensor
+ *  - reads Code 39 "*X*" barcodes (X = A to Z, either direction) with the
+ *    barcode IR sensor
  *    while the car keeps following the line.  The line sensors are
  *    analogue (ADC); the barcode sensor is digital (DO pin, GPIO level).
  *
@@ -87,9 +88,32 @@ typedef struct
     volatile uint32_t bc_decoded;       /* codes decoded (BC_OK) */
     volatile uint32_t bc_failed;        /* codes rejected (BC_FAIL) */
     volatile uint32_t bc_last;          /* last decoded character, 0 = none */
+    volatile uint32_t bc_status;        /* last decode: bc_decode_status_t,
+                                           LB_BC_STATUS_REVERSED if refused */
+    volatile uint32_t bc_count;         /* edges in the last decoded capture */
 } lb_stats_t;
 
+/* bc_status when a code was read backwards but LB_BC_ACCEPT_REVERSED is 0 */
+#define LB_BC_STATUS_REVERSED   8u
+/* bc_status when a capture ended with too few edges to be a code (ignored) */
+#define LB_BC_STATUS_SHORT      9u
+/* bc_status before the first capture has ended */
+#define LB_BC_STATUS_NONE       15u
+
 IMPORT lb_stats_t g_lb_stats;
+
+/** Edge times of the last finished capture, for the dashboard's barcode
+ *  topic.  seq changes after every capture; the rest is then stable until
+ *  the next capture ends.  Written only by barcode_task. */
+typedef struct
+{
+    volatile uint32_t seq;                      /* captures finished */
+    volatile uint32_t status;                   /* as g_lb_stats.bc_status */
+    volatile uint32_t count;                    /* edges in edge_us */
+    volatile uint32_t edge_us[LB_BC_MAX_EDGES]; /* edge times */
+} lb_bc_trace_t;
+
+IMPORT lb_bc_trace_t g_lb_bc_trace;
 
 IMPORT ID g_lb_tid_line;        /* line_task */
 IMPORT ID g_lb_tid_barcode;     /* barcode_task */

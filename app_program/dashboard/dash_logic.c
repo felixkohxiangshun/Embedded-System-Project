@@ -156,7 +156,6 @@ LOCAL const char *state_name(UB s)
 	case SYS_OBSTACLE_BYPASS: return "OBSTACLE_BYPASS";
 	case SYS_LINE_REACQUIRE:  return "LINE_REACQUIRE";
 	case SYS_FAULT_RECOVERY:  return "FAULT_RECOVERY";
-	case SYS_E_STOP:          return "E_STOP";
 	default:                  return "UNKNOWN";
 	}
 }
@@ -185,7 +184,7 @@ EXPORT INT dash_format_telem(const MSG_TELEM *t, char *buf, INT size)
 	jb_str(&j, bc);
 	jb_ch(&j, '"');
 	jb_field(&j, "hump_max_mm", t->hump_max_mm, FALSE);
-	jb_field(&j, "shock", t->shock, FALSE);
+	jb_field(&j, "lifted", t->lifted, FALSE);
 	jb_field(&j, "faults", t->fault_flags, FALSE);
 	jb_field(&j, "t_ms", (INT)t->uptime_ms, FALSE);
 	return jb_end(&j);
@@ -206,30 +205,21 @@ EXPORT INT dash_format_heartbeat(UW uptime_ms, UB sys_state, char *buf, INT size
 	return jb_end(&j);
 }
 
-LOCAL BOOL contains(const char *s, INT len, const char *word)
+/* A command is exactly one byte (minimum-bit rule): bit 0 is the command,
+   1 = START, 0 = STOP, read with protocol_bits like every other field.
+   Bits 1..7 must be 0.  Anything else (another length, a stray bit, old
+   text commands) is ignored. */
+EXPORT UB dash_parse_cmd(const char *data, INT len)
 {
-	INT i, k;
+	uint32_t cur = 0, start = 0;
 
-	for (i = 0; i < len; i++) {
-		for (k = 0; word[k] && i + k < len && s[i + k] == word[k]; k++) {
-			;
-		}
-		if (word[k] == '\0') {
-			return TRUE;
-		}
+	if (data == NULL || len != DASH_CMD_BYTES || ((UB)data[0] & (UB)~1u) != 0) {
+		return 0;
 	}
-	return FALSE;
-}
-
-EXPORT UB dash_parse_cmd(const char *text, INT len)
-{
-	if (contains(text, len, "E_STOP")) {
-		return MQTTCMD_ESTOP;
+	if (!protocol_bits_get((const uint8_t *)data, DASH_CMD_BYTES, &cur, 1, &start)) {
+		return 0;
 	}
-	if (contains(text, len, "RESUME")) {
-		return MQTTCMD_RESUME;
-	}
-	return 0;
+	return start ? MQTTCMD_START : MQTTCMD_STOP;
 }
 
 /* ---- Binary frames ------------------------------------------------------ */
@@ -288,7 +278,7 @@ EXPORT INT dash_pack_telem(const MSG_TELEM *t, UB seq, UB stored_char,
 	ok &= put(buf, size, &cur, dash_char_code(t->last_barcode), 31);
 	ok &= put(buf, size, &cur, clampi(stored_char, 0, 31), 31);
 	ok &= put(buf, size, &cur, clampi(t->hump_max_mm, 0, 127), 127);
-	ok &= put(buf, size, &cur, t->shock ? 1 : 0, 1);
+	ok &= put(buf, size, &cur, t->lifted ? 1 : 0, 1);	/* was shock */
 	ok &= put(buf, size, &cur, t->fault_flags, 255);
 	return ok ? DASH_TELEM_BYTES : -1;
 }
@@ -315,6 +305,46 @@ EXPORT INT dash_pack_debug(const DASH_DEBUG *g, UB seq, UB *buf, INT size)
 	ok &= put(buf, size, &cur, dash_char_code(g->bc_last), 31);
 	ok &= put(buf, size, &cur, clampi(g->ultra_mm, 0, 4095), 4095);
 	ok &= put(buf, size, &cur, g->motor_state & 7u, 7);
+	ok &= put(buf, size, &cur, g->bc_status & 15u, 15);
+	ok &= put(buf, size, &cur, clampi((INT)g->bc_count, 0, 63), 63);
+	ok &= put(buf, size, &cur, g->scan_state & 7u, 7);
+	ok &= put(buf, size, &cur, clampi(g->scan_mm[0], 0, 4095), 4095);
+	ok &= put(buf, size, &cur, clampi(g->scan_mm[1], 0, 4095), 4095);
+	ok &= put(buf, size, &cur, clampi(g->scan_mm[2], 0, 4095), 4095);
+	ok &= put(buf, size, &cur, clampi(g->scan_mm[3], 0, 4095), 4095);
+	ok &= put(buf, size, &cur, clampi(g->scan_mm[4], 0, 4095), 4095);
+	ok &= put(buf, size, &cur, g->scan_side & 3u, 3);
+	ok &= put(buf, size, &cur, g->bc_exit & 7u, 7);
+	ok &= put(buf, size, &cur, clampi(g->echo_rise_us, 0, 4095), 4095);
+	ok &= put(buf, size, &cur, clampi(g->echo_edges, 0, 15), 15);
+	ok &= put(buf, size, &cur, g->byp_result & 3u, 3);	/* bits 189-190 of 192 */
 	return ok ? DASH_DEBUG_BYTES : -1;
 }
 
+/* Returns the frame length, or -1 if buf is too small or count is bad */
+EXPORT INT dash_pack_bc_trace(UB seq, UB status, const UW *edge_us, INT count,
+			      UB *buf, INT size)
+{
+	INT i, len;
+	UW  w;
+
+	if (count < 0 || count > DASH_BC_TRACE_EDGES || (count > 0 && edge_us == NULL)) {
+		return -1;
+	}
+	len = 3 + 2 * (count > 1 ? count - 1 : 0);
+	if (size < len) {
+		return -1;
+	}
+	buf[0] = seq;
+	buf[1] = status;
+	buf[2] = (UB)count;
+	for (i = 1; i < count; i++) {
+		w = (edge_us[i] - edge_us[i - 1]) / 100u;	/* 0.1 ms; wraps safely */
+		if (w > 0xFFFFu) {
+			w = 0xFFFFu;
+		}
+		buf[3 + 2 * (i - 1)] = (UB)(w & 0xFFu);
+		buf[4 + 2 * (i - 1)] = (UB)(w >> 8);
+	}
+	return len;
+}

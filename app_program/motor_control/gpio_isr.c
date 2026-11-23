@@ -7,6 +7,8 @@
  *	    GP2 / GP3  left  encoder A / B   (both edges)
  *	    GP6 / GP7  right encoder A / B   (both edges)
  *	    GP20       BTN_START             (falling edge, active low)
+ *	    GP28       barcode sensor DO     (both edges, digital mode; enabled
+ *	                                      by line_barcode/ir_driver.c)
  *	The handler never blocks: it updates ENC_CNT, or sets EVT_BTN in flg_evt
  *	(tk_set_flg is allowed in a handler).
  *
@@ -53,10 +55,12 @@ LOCAL UW btn_last_us;
 #define ENC_MASK0	(PIN_BITS(PIN_ENC_LEFT_A, 0xF) | PIN_BITS(PIN_ENC_LEFT_B, 0xF) | \
 			 PIN_BITS(PIN_ENC_RIGHT_A, 0xF) | PIN_BITS(PIN_ENC_RIGHT_B, 0xF))
 #define BTN_MASK2	PIN_BITS(PIN_BTN_START, 0xF)
+/* Pins 24..31 are in register 3 */
+#define BC_MASK3	PIN_BITS(PIN_IR_BARCODE, 0xF)
 
 LOCAL void gpio_bank0_handler(UINT intno)
 {
-	UW  s0, s2, in;
+	UW  s0, s2, s3, in;
 	UW  t_us;
 	UB  cur;
 	INT d;
@@ -67,8 +71,14 @@ LOCAL void gpio_bank0_handler(UINT intno)
 
 	s0 = in_w(IO_PROC0_INTS(0));
 	s2 = in_w(IO_PROC0_INTS(2));
+	s3 = in_w(IO_PROC0_INTS(3));
 	out_w(IO_INTR(0), s0);		/* acknowledge the edges we saw */
 	out_w(IO_INTR(2), s2);
+	out_w(IO_INTR(3), s3);
+
+	if (s3 & BC_MASK3) {
+		lb_bc_gpio_isr(t_us);	/* barcode first: it has the shortest pulses */
+	}
 
 	if (s0 & ENC_MASK0) {
 		in = in_w(GPIO_IN);	/* sample both wheels at once */

@@ -12,6 +12,7 @@
 #include "ir_calib.h"
 #include "ir_filter.h"
 #include "bc_slicer.h"
+#include "bc_level.h"
 #include "ir_driver.h"
 
 /* RP2040 ADC registers (datasheet section 4.9). */
@@ -43,12 +44,22 @@ static UINT const g_pin[NUM_CHANNELS] =
 
 static ir_filter_t      g_filter[NUM_CHANNELS];
 static bc_slicer_t      g_slicer;
+static bc_level_t       g_level;    /* digital mode: DO debouncer */
+
+/* IO_BANK0 register 3 covers pins 24..31 (GP28 is the barcode DO); see
+ * motor_control/gpio_isr.c for the layout. */
+#define IO_INTR3                (IO_BANK0_BASE + 0x0F0u + (4u * 3u))
+#define IO_PROC0_INTE3          (IO_BANK0_BASE + 0x100u + (4u * 3u))
+#define BC_EDGE_BITS            (0xCu << (4u * (PIN_IR_BARCODE & 7u)))
 static volatile int32_t g_dark[NUM_CHANNELS];
 
 /* Private function prototypes. */
 static uint16_t adc_convert(uint32_t channel);
 static int32_t  adc_read_dark(uint32_t channel);
 static int32_t  read_barcode_dark(void);
+#if (LB_BC_USE_GPIO_LEVEL != 0)
+static bool     read_barcode_is_dark(void);
+#endif
 static void     send_edge(bc_slicer_edge_t const * p_edge);
 
 void
@@ -67,6 +78,14 @@ ir_driver_init (void)
             /* The barcode sensor is wired to its digital output
              * (DO) and is read as a plain GPIO level, not with the ADC. */
             (void)gpio_set_pin(g_pin[chan], GPIO_MODE_IN);
+            bc_level_init(&g_level, read_barcode_is_dark(),
+                          (uint32_t)APP_NOW_US());
+
+            /* Clear anything latched, then let both DO edges interrupt
+             * core 0.  The bank-0 handler (gpio_isr.c) calls
+             * lb_bc_gpio_isr(). */
+            out_w(IO_INTR3, BC_EDGE_BITS);
+            out_w(IO_PROC0_INTE3, in_w(IO_PROC0_INTE3) | BC_EDGE_BITS);
         }
         else
 #endif
@@ -115,6 +134,28 @@ ir_sampler_isr (void * p_exinf)
                               read_barcode_dark());
     g_dark[IR_CHANNEL_BARCODE] = dark_bar;
 
+#if (LB_BC_USE_GPIO_LEVEL != 0)
+    /* Digital: the edges come from the GPIO interrupt with exact times;
+     * here only a level that has stopped changing is confirmed. */
+    {
+        UINT intsts = 0u;
+        bool b_edge = false;
+
+        DI(intsts);
+        b_edge = bc_level_poll(&g_level, start_us, &edge);
+        EI(intsts);
+
+        if (b_edge)
+        {
+            send_edge(&edge);
+        }
+        else
+        {
+            /* No edge confirmed in this millisecond (the normal case). */
+        }
+    }
+    (void)g_slicer;
+#else
     if (bc_slicer_step(&g_slicer, dark_bar, start_us, &edge))
     {
         send_edge(&edge);
@@ -123,6 +164,7 @@ ir_sampler_isr (void * p_exinf)
     {
         /* No edge in this millisecond (the normal case). */
     }
+#endif
 
     /* Keep the longest run so the tests can check the CPU budget. */
     used_us = (uint32_t)APP_NOW_US() - start_us;
@@ -160,7 +202,8 @@ ir_driver_get_dark (uint32_t channel)
  *
  * @param[in] channel  ADC input 0 to 4.
  *
- * @return 12-bit result; 0 if the converter never became ready.
+ * @return LB_ADC_BITS-bit result (the 12-bit conversion with its noisy low
+ *         bits dropped); 0 if the converter never became ready.
  */
 static uint16_t
 adc_convert (uint32_t channel)
@@ -178,7 +221,8 @@ adc_convert (uint32_t channel)
     if (polls < ADC_POLL_LIMIT)
     {
         /* Cast: the value is masked to 12 bits, so it fits uint16_t. */
-        result = (uint16_t)(in_w(ADC_RESULT) & ADC_RESULT_MASK);
+        result = (uint16_t)((in_w(ADC_RESULT) & ADC_RESULT_MASK)
+                            >> (12 - LB_ADC_BITS));
     }
     else
     {
@@ -197,7 +241,7 @@ adc_convert (uint32_t channel)
  *
  * @param[in] channel  IR_CHANNEL_xxx.
  *
- * @return Dark-scale count, 0 to 4095.
+ * @return Dark-scale count, 0 to LB_ADC_MAX_COUNT.
  */
 static int32_t
 adc_read_dark (uint32_t channel)
@@ -223,16 +267,57 @@ adc_read_dark (uint32_t channel)
  * slicer and everything after it work the same way as in analogue mode.
  * Analogue mode (0) is kept as a fallback and reads the ADC instead.
  */
+#if (LB_BC_USE_GPIO_LEVEL != 0)
+/*!
+ * @brief Digital mode: is the barcode sensor's DO pin showing a dark bar?
+ */
+static bool
+read_barcode_is_dark (void)
+{
+    bool b_high = (0u != gpio_get_val(PIN_IR_BARCODE));
+
+    return (b_high == (0 != LB_BC_GPIO_DARK_IS_HIGH));
+}
+#endif
+
+void
+lb_bc_gpio_isr (UW now_us)
+{
+#if (LB_BC_USE_GPIO_LEVEL != 0)
+    bc_slicer_edge_t edge;
+    UINT             intsts = 0u;
+    bool             b_edge = false;
+
+    /* The level is read now, not taken from the edge bits: if both edges
+     * were latched the pin itself says where it ended. */
+    DI(intsts);
+    b_edge = bc_level_change(&g_level, (uint32_t)now_us,
+                             read_barcode_is_dark(), &edge);
+    EI(intsts);
+
+    if (b_edge)
+    {
+        send_edge(&edge);
+    }
+    else
+    {
+        /* Chatter, or the change still has to prove itself. */
+    }
+#else
+    (void)now_us;       /* analogue mode: the DO interrupt is never enabled */
+#endif
+
+    return;
+}
+
 static int32_t
 read_barcode_dark (void)
 {
     int32_t dark = 0;
 
 #if (LB_BC_USE_GPIO_LEVEL != 0)
-    bool b_high = (0u != gpio_get_val(PIN_IR_BARCODE));
-    bool b_dark = (b_high == (0 != LB_BC_GPIO_DARK_IS_HIGH));
-
-    dark = b_dark ? LB_BC_GPIO_DARK_COUNT : LB_BC_GPIO_LIGHT_COUNT;
+    dark = read_barcode_is_dark() ? LB_BC_GPIO_DARK_COUNT
+                                  : LB_BC_GPIO_LIGHT_COUNT;
 #else
     dark = adc_read_dark(IR_CHANNEL_BARCODE);
 #endif

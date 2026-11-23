@@ -44,6 +44,13 @@ typedef struct
     bool     b_seen;            /* line visible (with hysteresis) */
     bool     b_faded;           /* FADED mode (with hysteresis) */
     bool     b_primed;          /* prev_err and err_filt hold real values */
+    /* Straddle mode only (LB_LINE_STRADDLE): */
+    int32_t  out_side;          /* -1 / +1: the line may have left past the
+                                   centre / right sensor; 0: it is inside */
+    int32_t  ep_side;           /* side of the darkest reading so far */
+    int32_t  ep_peak;           /* darkest reading of this black episode */
+    uint32_t seek_ticks;        /* ticks spent steering toward out_side */
+    bool     b_episode;         /* a sensor is seeing black */
 } line_ctrl_t;
 
 /** Branch detector state. */
@@ -82,6 +89,14 @@ void line_ctrl_init(line_ctrl_t * p_ctrl);
  * @param[in]     last_steer  Steering that was last sent to Mission.
  */
 void line_ctrl_restart(line_ctrl_t * p_ctrl, int32_t last_steer);
+
+/*!
+ * @brief Straddle mode: the line is known to be on this side (-1 left,
+ *        +1 right; 0 does nothing), e.g. after an obstacle bypass.  If both
+ *        sensors read white the controller seeks that way (as after
+ *        losing the line past a sensor) instead of driving straight on.
+ */
+void line_ctrl_seek(line_ctrl_t * p_ctrl, int32_t side);
 
 /*!
  * @brief Run one control tick (every LB_LINE_TICK_MS).

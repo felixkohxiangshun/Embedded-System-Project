@@ -257,14 +257,33 @@ EXPORT void imu_terrain_test(void)
 	TEST_CHECK("S3-U03", o.dones == 1 && th_abs(o.height_mm - 10) <= 2 &&
 		   l.max_height_mm == first, "10 mm hump measured, tallest (20) kept");
 
-	/* S3-U04/U05/U08: shock (FR-06) */
+	/* S3-U04/U05/U08: lift (replaces shock, 2026-11-17) */
 	imu_logic_init(&l);
 	th_calibrate(&l);
 	o = th_drive(&l, &flat, 0, 400, 200, 3500, 2, -1);
-	TEST_CHECK("S3-U04", o.shocks == 1, "2-sample 3.5 g knock = SHOCK");
-	TEST_CHECK("S3-U08", o.starts == 0 && o.dones == 0, "a knock does not look like a hump");
+	TEST_CHECK("S3-U08", o.starts == 0 && o.dones == 0 && o.lifts == 0,
+		"a 3.5 g knock is neither a hump nor a lift");
 	o = th_drive(&l, &flat, 0, 400, 200, 3500, 5, -1);
-	TEST_CHECK("S3-U05", o.shocks == 0, "5-sample reading is not a SHOCK");
+	TEST_CHECK("S3-U05a", o.lifts == 0 && l.state != IMU_LIFTED, "a long hard knock is not a lift");
+	/* S3-U04: lifted and turned upside down (2026-11-17, replaces SHOCK) */
+	k = th_hold(&l, 0, 0, -950, LIFT_CONFIRM_SAMPLES - 1);
+	TEST_CHECK("S3-U04a", k == 0 && l.state != IMU_LIFTED, "upside down under 100 ms: not yet");
+	k = th_hold(&l, 0, 0, -950, 1);
+	TEST_CHECK("S3-U04b", k == 1 && l.state == IMU_LIFTED, "upside down for 100 ms: LIFTED");
+	k = th_hold(&l, 300, -200, -700, 100) + th_hold(&l, 0, 0, -1000, 100);
+	TEST_CHECK("S3-U04c", k == 0 && l.state == IMU_LIFTED, "held upside down and shaken: reported once");
+	th_hold(&l, 0, 0, 1000, LIFT_CLEAR_SAMPLES);
+	TEST_CHECK("S3-U04d", l.state == IMU_MONITORING && l.calibrated,
+		"back on its wheels for 0.5 s: monitoring again, baseline kept");
+	k = th_hold(&l, 0, 1000, 0, 100);
+	TEST_CHECK("S3-U05b", k == 0 && l.state != IMU_LIFTED, "lying on its side is not a lift");
+	imu_logic_init(&l);
+	k = th_hold(&l, 0, 0, -1000, LIFT_CONFIRM_SAMPLES);
+	TEST_CHECK("S3-U05c", k == 1, "lifted before calibration still counts");
+	imu_logic_init(&l);
+	th_calibrate(&l);
+	o = th_drive(&l, &h20, 0, 1000, -1, 0, 0, -1);
+	TEST_CHECK("S3-U05d", o.dones == 1 && o.lifts == 0, "a hump is never a lift");
 
 	/* S3-U06: fault and recovery (FR-19) */
 	imu_fault(&l);

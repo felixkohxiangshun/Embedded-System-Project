@@ -28,7 +28,8 @@ Define a test here before running it. Test IDs never change.
 | S4-M06 | Broker-restart recovery of diagnostic transport | MQTT reconnect/resubscribe groundwork | manual, target | Stop/restart broker; receive five fresh outbound fixtures, then send valid binary reply | Connection/subscription restored, both directions resume |
 | S4-W01 | Laptop webpage to broker/Pico connection | Dashboard connection demonstration | manual, browser + target | Run local `web/serve.py`; verify live fixture; click Send test reply; check Pico RX PASS; disconnect/reconnect | Broker/subscription indicators, exact binary messages and physical RX PASS; no Mission commands |
 | S4-U10 | binary telemetry: pack a known frame into 11 bytes and unpack it, every field equal; out-of-range values clamped | FR-16, NFR-13 | auto, host | `host_tests.c` | `PASS` from `make -C testing/host run` |
-| S4-U12 | debug frame: pack a known frame into 12 bytes and unpack it, every field equal; out-of-range values clamped | debugging aid | auto, host | `host_tests.c` | `PASS` from `make -C testing/host run` |
+| S4-U12 | debug frame: pack a known frame into 24 bytes (with the five obstacle sweep readings and the echo timing) and unpack it, every field equal; out-of-range values clamped | debugging aid | auto, host | `host_tests.c` | `PASS` from `make -C testing/host run` |
+| S4-U13 | barcode trace frame (`csc11/dev/car/barcode`): edge times packed as widths in 0.1 ms, long widths clamped to 65535, too many edges or a short buffer refused | debugging aid | auto, host | `host_tests.c` | `PASS` from `make -C testing/host run` |
 | S4-W02 | car dashboard page decodes telemetry and debug frames packed by the firmware code | FR-16 | auto, host + manual | `node --test app_program/dashboard/web/car_model.test.mjs`; then `testing/dashboard/CAR_DASHBOARD.md` | tests pass; page shows live values from the car |
 
 *Method:* **auto** = `TEST_CHECK` in code, result printed on the console

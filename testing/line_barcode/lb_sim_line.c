@@ -39,6 +39,9 @@
 #include "line_recov.h"
 #include "lb_sim.h"
 
+/* 12-bit counts per LB_ADC_BITS count */
+#define ADC_SCALE ((double)(1 << (12 - LB_ADC_BITS)))
+
 #define PI_VALUE        3.14159265358979
 #define DEG2RAD         (PI_VALUE / 180.0)
 #define POINT_STEP_MM   1.0
@@ -206,7 +209,11 @@ lb_sim_line_defaults (lb_sim_line_cfg_t * p_cfg)
 
     p_cfg->speed_mmps        = 120.0;   /* Motor: normal speed */
     p_cfg->axle_to_sensor_mm = 80.0;    /* assumed; measure on the car */
+#if (LB_LINE_STRADDLE != 0)
+    p_cfg->sensor_gap_mm     = 30.0;    /* straddle: wider than the line */
+#else
     p_cfg->sensor_gap_mm     = 18.0;    /* about one line width */
+#endif
     p_cfg->spot_mm           = 6.0;
     p_cfg->line_mm           = 18.0;    /* Barcode & Line Specification */
     p_cfg->track_mm          = 130.0;   /* Motor: wheel base */
@@ -321,12 +328,14 @@ lb_sim_line_run (lb_sim_line_cfg_t const * p_cfg, lb_sim_line_result_t * p_res)
         flick = 1.0 + (p_cfg->flicker
                        * sin((2.0 * PI_VALUE * 100.0 * (double)ms / 1000.0)
                              + phase));
-        cnt_c = ((cnt_c + p_cfg->ambient_shift) * flick)
-                + (p_cfg->noise_counts * rng_gauss());
-        cnt_r = ((cnt_r + p_cfg->ambient_shift) * flick)
-                + (p_cfg->noise_counts * rng_gauss());
-        cnt_c = fmin(fmax(cnt_c, 0.0), 4095.0);
-        cnt_r = fmin(fmax(cnt_r, 0.0), 4095.0);
+        /* ambient_shift and noise_counts are given in 12-bit counts (as
+         * measured); scale them to the LB_ADC_BITS readings. */
+        cnt_c = ((cnt_c + (p_cfg->ambient_shift / ADC_SCALE)) * flick)
+                + ((p_cfg->noise_counts / ADC_SCALE) * rng_gauss());
+        cnt_r = ((cnt_r + (p_cfg->ambient_shift / ADC_SCALE)) * flick)
+                + ((p_cfg->noise_counts / ADC_SCALE) * rng_gauss());
+        cnt_c = fmin(fmax(cnt_c, 0.0), (double)LB_ADC_MAX_COUNT);
+        cnt_r = fmin(fmax(cnt_r, 0.0), (double)LB_ADC_MAX_COUNT);
 
         {
             int32_t fc = ir_filter_push(&filt_c, (int32_t)floor(cnt_c + 0.5));

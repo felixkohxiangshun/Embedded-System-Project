@@ -26,7 +26,7 @@ EXPORT void telemetry_task(INT stacd, void *exinf)
 		t.obs_dist_mm = app_state.obs_dist_mm;
 		t.last_barcode = app_state.last_barcode;
 		t.hump_max_mm = app_state.hump_max_mm;
-		t.shock = app_state.shock;
+		t.lifted = app_state.lifted;
 		t.fault_flags = app_state.fault_flags;
 		state_unlock();
 

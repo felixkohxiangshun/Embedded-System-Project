@@ -26,9 +26,16 @@ static void update_flags(line_ctrl_t * p_ctrl,
                          int32_t dark_centre,
                          int32_t dark_right,
                          int32_t mass);
+#if (LB_LINE_STRADDLE != 0)
+static int32_t straddle_error(line_ctrl_t * p_ctrl,
+                              int32_t dark_centre,
+                              int32_t dark_right);
+#endif
+#if (LB_LINE_STRADDLE == 0)
 static int32_t estimate_error(line_ctrl_t const * p_ctrl,
                               int32_t dark_centre,
                               int32_t mass);
+#endif
 static int32_t compute_steer(line_ctrl_t * p_ctrl, int32_t err);
 static int32_t clamp_i32(int32_t value, int32_t low, int32_t high);
 
@@ -45,6 +52,11 @@ line_ctrl_init (line_ctrl_t * p_ctrl)
         p_ctrl->b_seen          = false;
         p_ctrl->b_faded         = false;
         p_ctrl->b_primed        = false;
+        p_ctrl->out_side        = 0;
+        p_ctrl->ep_side         = 0;
+        p_ctrl->ep_peak         = 0;
+        p_ctrl->seek_ticks      = 0u;
+        p_ctrl->b_episode       = false;
     }
     else
     {
@@ -59,12 +71,32 @@ line_ctrl_restart (line_ctrl_t * p_ctrl, int32_t last_steer)
 {
     if (NULL != p_ctrl)
     {
-        p_ctrl->b_primed = false;
-        p_ctrl->steer    = clamp_i32(last_steer, -LB_STEER_MAX, LB_STEER_MAX);
+        p_ctrl->b_primed   = false;
+        p_ctrl->steer      = clamp_i32(last_steer, -LB_STEER_MAX, LB_STEER_MAX);
+        /* Straddle memory is from before the stop or turn: forget it. */
+        p_ctrl->out_side   = 0;
+        p_ctrl->b_episode  = false;
+        p_ctrl->seek_ticks = 0u;
     }
     else
     {
         /* NULL pointer: nothing to restart. */
+    }
+
+    return;
+}
+
+void
+line_ctrl_seek (line_ctrl_t * p_ctrl, int32_t side)
+{
+    if ((NULL != p_ctrl) && (0 != side))
+    {
+        p_ctrl->out_side   = (side > 0) ? 1 : -1;
+        p_ctrl->seek_ticks = 0u;
+    }
+    else
+    {
+        /* NULL pointer or no side: nothing to do. */
     }
 
     return;
@@ -85,6 +117,22 @@ line_ctrl_update (line_ctrl_t * p_ctrl,
 
         update_flags(p_ctrl, dark_centre, dark_right, mass);
 
+#if (LB_LINE_STRADDLE != 0)
+        /* Straddle mode: both white is "on the line"; the steering comes
+         * from the difference, or from the side the line was last seen. */
+        p_ctrl->b_faded = false;
+        err             = straddle_error(p_ctrl, dark_centre, dark_right);
+
+        if (p_ctrl->b_seen)
+        {
+            p_ctrl->steer = compute_steer(p_ctrl, err);
+        }
+        else
+        {
+            /* Lost: line_recov.c takes over with the remembered error. */
+            err = p_ctrl->err_filt;
+        }
+#else
         if (p_ctrl->b_seen)
         {
             err = estimate_error(p_ctrl, dark_centre, mass);
@@ -96,6 +144,7 @@ line_ctrl_update (line_ctrl_t * p_ctrl,
              * so line_recov.c can decide what to do. */
             err = p_ctrl->err_filt;
         }
+#endif
 
         p_out->err        = err;
         p_out->mass       = mass;
@@ -169,6 +218,7 @@ update_flags (line_ctrl_t * p_ctrl,
     return;
 }
 
+#if (LB_LINE_STRADDLE == 0)
 /*!
  * @brief Line position error, -500 (under centre) to +500 (under right).
  *
@@ -180,8 +230,14 @@ update_flags (line_ctrl_t * p_ctrl,
 static int32_t
 estimate_error (line_ctrl_t const * p_ctrl, int32_t dark_centre, int32_t mass)
 {
+#if (LB_LINE_ERR_DIFF != 0)
+    /* Difference: proportional to how much more of the line the right
+     * sensor sees.  mass = centre + right, so right = mass - centre. */
+    int32_t err      = ((mass - dark_centre) - dark_centre) / 2;
+#else
     int32_t position = (POSITION_CENTRE_SENSOR * dark_centre) / mass;
     int32_t err      = position - LB_LINE_TARGET;
+#endif
 
     /* On a junction both sensors are dark and the position means nothing:
      * pretend the line is dead ahead so the car drives straight over it. */
@@ -203,6 +259,108 @@ estimate_error (line_ctrl_t const * p_ctrl, int32_t dark_centre, int32_t mass)
 
     return (err);
 }
+#endif /* LB_LINE_STRADDLE == 0 */
+
+#if (LB_LINE_STRADDLE != 0)
+/*!
+ * @brief Straddle mode: position error, and whether the line is still there.
+ *
+ * -500 (centre sensor black, steer left) to +500 (right sensor black, steer
+ * right), 0 with both white.  Remembers on which side the line may have
+ * slid out (see LB_STRADDLE_FULL in lb_config.h) and steers back toward it;
+ * sets b_seen to false once that seeking has found nothing for SEEK_MS.
+ */
+static int32_t
+straddle_error (line_ctrl_t * p_ctrl, int32_t dark_centre, int32_t dark_right)
+{
+    int32_t err    = 0;
+    int32_t darker = 0;
+    bool    b_both = (dark_centre >= LB_JUNCTION_DARK_MIN)
+                     && (dark_right >= LB_JUNCTION_DARK_MIN);
+
+    /* Rescale so that LB_STRADDLE_SAT reads as fully black: a faded line
+     * then steers and is tracked like a fresh one. */
+    dark_centre = (clamp_i32(dark_centre, 0, LB_STRADDLE_SAT) * LB_DARK_MAX)
+                  / LB_STRADDLE_SAT;
+    dark_right  = (clamp_i32(dark_right, 0, LB_STRADDLE_SAT) * LB_DARK_MAX)
+                  / LB_STRADDLE_SAT;
+    darker      = (dark_centre > dark_right) ? dark_centre : dark_right;
+
+    p_ctrl->b_seen = true;
+
+    if (darker >= LB_STRADDLE_BLACK_MIN)
+    {
+        /* Black under a sensor: steer on the difference. */
+        if (!p_ctrl->b_episode)
+        {
+            p_ctrl->b_episode = true;
+            p_ctrl->ep_peak   = 0;
+            p_ctrl->ep_side   = 0;
+        }
+        else
+        {
+            /* The episode goes on. */
+        }
+
+        if (darker >= p_ctrl->ep_peak)
+        {
+            p_ctrl->ep_peak = darker;
+
+            if (b_both)
+            {
+                p_ctrl->ep_side = 0;    /* both dark: a junction */
+            }
+            else
+            {
+                p_ctrl->ep_side = (dark_right > dark_centre) ? 1 : -1;
+            }
+        }
+        else
+        {
+            /* Not darker than before: keep the side of the peak. */
+        }
+
+        p_ctrl->seek_ticks = 0u;
+        err = (dark_right - dark_centre) / 2;
+    }
+    else
+    {
+        if (p_ctrl->b_episode)
+        {
+            /* The black reading just ended: inside or out past it? */
+            p_ctrl->b_episode = false;
+            p_ctrl->out_side  = (p_ctrl->ep_peak >= LB_STRADDLE_FULL)
+                                ? p_ctrl->ep_side : 0;
+        }
+        else
+        {
+            /* Still white. */
+        }
+
+        if (0 != p_ctrl->out_side)
+        {
+            err = p_ctrl->out_side * LB_STRADDLE_SEEK_ERR;
+
+            /* Casts: both are small positive constants. */
+            if ((p_ctrl->seek_ticks * (uint32_t)LB_LINE_TICK_MS)
+                < (uint32_t)LB_STRADDLE_SEEK_MS)
+            {
+                p_ctrl->seek_ticks++;
+            }
+            else
+            {
+                p_ctrl->b_seen = false;     /* sought long enough: lost */
+            }
+        }
+        else
+        {
+            /* Line between the sensors: straight on. */
+        }
+    }
+
+    return (err);
+}
+#endif /* LB_LINE_STRADDLE != 0 */
 
 /*!
  * @brief PD controller with FADED-mode gains, output limit and slew limit.

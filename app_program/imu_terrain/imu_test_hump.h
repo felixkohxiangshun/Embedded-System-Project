@@ -34,7 +34,7 @@ typedef struct {
 } TH_HUMP;
 
 typedef struct {
-	INT	starts, dones, shocks;
+	INT	starts, dones, lifts;
 	INT	height_mm;	/* of the last HUMP_DONE */
 } TH_OUT;
 
@@ -117,6 +117,24 @@ static void th_sense(const TH_HUMP *h, INT x_um, INT x_prev, IMU_VEC *a, INT *ds
 	}
 }
 
+/* Feed n samples of one acceleration, car standing still; returns how many
+   of them reported IMU_EV_LIFTED */
+static INT th_hold(IMU_LOGIC *l, INT fwd, INT side, INT up, INT n)
+{
+	IMU_VEC a;
+	INT k, lifts = 0;
+
+	for (k = 0; k < n; k++) {
+		a.fwd = fwd;
+		a.side = side;
+		a.up = up;
+		if (imu_feed(l, &a, 0, FALSE, TRUE) == IMU_EV_LIFTED) {
+			lifts++;
+		}
+	}
+	return lifts;
+}
+
 /* Calibrate: 1.2 s standing still */
 static void th_calibrate(IMU_LOGIC *l)
 {
@@ -162,8 +180,8 @@ static TH_OUT th_drive(IMU_LOGIC *l, const TH_HUMP *h, INT x_from, INT x_to,
 		} else if (ev == IMU_EV_HUMP_DONE) {
 			o.dones++;
 			o.height_mm = l->height_mm;
-		} else if (ev == IMU_EV_SHOCK) {
-			o.shocks++;
+		} else if (ev == IMU_EV_LIFTED) {
+			o.lifts++;
 		}
 	}
 	return o;

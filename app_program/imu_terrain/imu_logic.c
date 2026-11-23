@@ -1,6 +1,6 @@
 /*
  *	imu_logic.c
- *	IMU/terrain -- pure hump-height / shock logic.  See imu_logic.h.
+ *	IMU/terrain -- pure hump-height / lift logic.  See imu_logic.h.
  *	All arithmetic fits in 32 bits (checked against the worst-case inputs
  *	in the comments), so it needs no 64-bit helpers on the Cortex-M0+.
  */
@@ -574,8 +574,8 @@ EXPORT void imu_logic_init(IMU_LOGIC *l)
 	acc_reset(l);
 	l->pos_um = 0;
 	l->last_mm = 0;
-	l->over_cnt = 0;
-	l->shock_pending = FALSE;
+	l->inv_cnt = 0;
+	l->up_cnt = 0;
 	l->height_mm = 0;
 	l->max_height_mm = 0;
 	l->residual_um = 0;
@@ -590,8 +590,8 @@ EXPORT void imu_fault(IMU_LOGIC *l)
 {
 	hump_give_up(l);
 	l->state = IMU_SENSOR_FAULT;
-	l->over_cnt = 0;
-	l->shock_pending = FALSE;
+	l->inv_cnt = 0;
+	l->up_cnt = 0;
 }
 
 /* The mounting tilt does not change with an I2C fault, and the car may be
@@ -605,20 +605,49 @@ EXPORT void imu_recovered(IMU_LOGIC *l)
 	cal_reset(l);
 	prof_zero(l);
 	hump_to_flat(l, 0);
-	l->over_cnt = 0;
+	l->inv_cnt = 0;
+	l->up_cnt = 0;
 	l->state = l->calibrated ? IMU_MONITORING : IMU_CALIBRATING;
+}
+
+/* 'up' on the far side of zero from its rest value: gravity reversed */
+LOCAL BOOL upside_down(const IMU_LOGIC *l, const IMU_VEC *a)
+{
+	return (l->rest.up >= 0) ? (a->up < -LIFT_INV_MG) : (a->up > LIFT_INV_MG);
 }
 
 EXPORT INT imu_feed(IMU_LOGIC *l, const IMU_VEC *a, INT ds_um, BOOL still, BOOL allowed)
 {
-	INT  acc, ev, was_over;
-	UW   dev;
+	INT  acc, ev;
 	IMU_VEC ad;
 
 	if (l->state == IMU_SENSOR_FAULT) {
 		return IMU_EV_NONE;
 	}
-	if ((l->state == IMU_HUMP_COMPLETE) || (l->state == IMU_SHOCK_EVENT)) {
+
+	/* lift: stays LIFTED (nothing measured) until the car has been the
+	   right way up for a while, then the filters start again */
+	if (l->state == IMU_LIFTED) {
+		if (upside_down(l, a) || (iabs(a->up - l->rest.up) > LIFT_UPRIGHT_MG)) {
+			l->up_cnt = 0;			/* still upside down or tilted */
+		} else if (++l->up_cnt >= LIFT_CLEAR_SAMPLES) {
+			imu_recovered(l);		/* fresh filters, baseline kept */
+		}
+		return IMU_EV_NONE;
+	}
+	if (upside_down(l, a)) {
+		if (++l->inv_cnt >= LIFT_CONFIRM_SAMPLES) {
+			hump_give_up(l);		/* not a hump: it was picked up */
+			cal_reset(l);
+			l->state = IMU_LIFTED;
+			l->up_cnt = 0;
+			return IMU_EV_LIFTED;
+		}
+	} else {
+		l->inv_cnt = 0;
+	}
+
+	if (l->state == IMU_HUMP_COMPLETE) {
 		l->state = l->confirmed ? IMU_HUMP_TRACKING : IMU_MONITORING;
 	}
 	if (ds_um > DS_MAX_UM) {
@@ -626,18 +655,6 @@ EXPORT INT imu_feed(IMU_LOGIC *l, const IMU_VEC *a, INT ds_um, BOOL still, BOOL 
 	} else if (ds_um < -DS_MAX_UM) {
 		ds_um = -DS_MAX_UM;
 	}
-	/* shock: far from the rest vector, judged when the spike ends */
-	dev = mag3(a->fwd - l->rest.fwd, a->side - l->rest.side, a->up - l->rest.up);
-	was_over = l->over_cnt;
-	if (dev > (UW)SHOCK_MG) {
-		l->over_cnt++;
-	} else {
-		l->over_cnt = 0;
-		if ((was_over > 0) && (was_over < SHOCK_MAX_SAMPLES)) {
-			l->shock_pending = TRUE;
-		}
-	}
-
 	/* calibration: the car must stand still for IMU_CAL_SAMPLES.  Until it
 	   has been measured nothing is measured (an unknown mounting tilt looks
 	   exactly like a lifted wheel), so the state stays CALIBRATING; if the
@@ -655,10 +672,6 @@ EXPORT INT imu_feed(IMU_LOGIC *l, const IMU_VEC *a, INT ds_um, BOOL still, BOOL 
 		}
 		if (!l->calibrated) {
 			l->state = IMU_CALIBRATING;
-			if (l->shock_pending) {
-				l->shock_pending = FALSE;
-				return IMU_EV_SHOCK;
-			}
 			return IMU_EV_NONE;
 		}
 	}
@@ -695,11 +708,6 @@ EXPORT INT imu_feed(IMU_LOGIC *l, const IMU_VEC *a, INT ds_um, BOOL still, BOOL 
 		l->state = IMU_HUMP_TRACKING;
 	} else {
 		l->state = l->confirmed ? IMU_HUMP_TRACKING : IMU_MONITORING;
-		if (l->shock_pending) {
-			l->shock_pending = FALSE;
-			l->state = IMU_SHOCK_EVENT;
-			ev = IMU_EV_SHOCK;
-		}
 	}
 	return ev;
 }

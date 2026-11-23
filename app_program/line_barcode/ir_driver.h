@@ -59,7 +59,7 @@ void ir_sampler_isr(void * p_exinf);
  * @param[in] channel  IR_CHANNEL_RIGHT, IR_CHANNEL_CENTRE or
  *                     IR_CHANNEL_BARCODE.
  *
- * @return Dark-scale count (0 to 4095, higher is darker); 0 if the channel
+ * @return Dark-scale count (0 to LB_ADC_MAX_COUNT, higher is darker); 0 if the channel
  *         number is invalid.  For IR_CHANNEL_BARCODE in digital mode the value
  *         is one of two fixed counts (LB_BC_GPIO_LIGHT_COUNT or
  *         LB_BC_GPIO_DARK_COUNT) averaged over 10 ms.

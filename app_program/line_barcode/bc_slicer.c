@@ -80,7 +80,7 @@ bc_slicer_step (bc_slicer_t * p_slicer,
         /* Store the sample first: the edge search may need it. */
         slot = p_slicer->sample_no % LB_BC_HISTORY_SAMPLES;
 
-        /* Cast: sample was clamped to 0 to 4095 above, so it fits int16_t. */
+        /* Cast: sample was clamped to 0 to LB_ADC_MAX_COUNT above, so it fits int16_t. */
         p_slicer->value[slot]   = (int16_t)sample;
         p_slicer->time_us[slot] = now_us;
 
@@ -461,7 +461,7 @@ learn_levels (bc_slicer_t * p_slicer, int32_t valley, int32_t peak)
 }
 
 /*!
- * @brief Limit a count to the 12-bit ADC range.
+ * @brief Limit a count to the ADC range (LB_ADC_BITS).
  */
 static int32_t
 clamp_count (int32_t value)

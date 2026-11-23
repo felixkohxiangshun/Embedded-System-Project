@@ -1,10 +1,19 @@
 #include "dashboard.h"
 #include "../line_barcode/line_barcode.h"
 #include "../mission_obstacle/mission_obstacle.h"
+#include "../line_barcode/ir_driver.h"
 
 /* 1 publishes a debug frame (line sensors, steering, barcode counters,
    ultrasonic) every DASH_TICK_MS while online.  It is extra to the graded
    telemetry and goes on its own topic. */
+/* 1: line-sensor calibration.  darkC / darkR on the debug topic carry the
+   RAW filtered counts of the centre and right sensors divided by 4
+   (0..4095 -> 0..1023) instead of the calibrated darkness, so the white and
+   black values can be read off the dashboard.  Restore 0. */
+#ifndef DASH_RAW_IR
+#define DASH_RAW_IR		0
+#endif
+
 #ifndef DASH_DEBUG_FRAMES
 #define DASH_DEBUG_FRAMES	1
 #endif
@@ -67,8 +76,13 @@ LOCAL void send_out(UB kind, const UB *data, INT len)
    another subsystem's counters, read without a lock: a debug view only. */
 LOCAL void sample_debug(DASH_DEBUG *g)
 {
+#if DASH_RAW_IR
+	g->dark_c = (INT)(ir_driver_get_dark(IR_CHANNEL_CENTRE) / 4);
+	g->dark_r = (INT)(ir_driver_get_dark(IR_CHANNEL_RIGHT) / 4);
+#else
 	g->dark_c = (INT)g_lb_stats.line_dark_centre;
 	g->dark_r = (INT)g_lb_stats.line_dark_right;
+#endif
 	g->err = (INT)g_lb_stats.line_err;
 	g->steer = (INT)g_lb_stats.line_steer;
 	g->mode = (UB)g_lb_stats.line_mode;
@@ -77,6 +91,19 @@ LOCAL void sample_debug(DASH_DEBUG *g)
 	g->bc_fail = g_lb_stats.bc_failed;
 	g->bc_last = (UB)g_lb_stats.bc_last;
 	g->ultra_mm = s5_scan_last_mm;
+	g->scan_state = s5_scan_state;
+	g->scan_mm[0] = s5_scan_mm[0];
+	g->scan_mm[1] = s5_scan_mm[1];
+	g->scan_mm[2] = s5_scan_mm[2];
+	g->scan_mm[3] = s5_scan_mm[3];
+	g->scan_mm[4] = s5_scan_mm[4];
+	g->scan_side = s5_scan_side;
+	g->bc_exit = s5_bc_exit;
+	g->byp_result = s5_byp_result;
+	g->echo_rise_us = (INT)s5_echo_rise_us;
+	g->echo_edges = (INT)s5_echo_edges;
+	g->bc_status = (UB)g_lb_stats.bc_status;
+	g->bc_count = g_lb_stats.bc_count;
 	g->motor_state = MOT_STOPPED;
 	if (state_lock(TMO_POL) == E_OK) {
 		g->motor_state = app_state.motor_state;
@@ -94,7 +121,11 @@ EXPORT void dashboard_task(INT stacd, void *exinf)
 #if DASH_DEBUG_FRAMES
 	UB              debug_seq = 0;
 	DASH_DEBUG      g;
+	UB              bc_frame[DASH_BC_TRACE_MAX];
+	UW              bc_edges[DASH_BC_TRACE_EDGES];
+	UW              bc_seq_sent = 0;
 #endif
+	UB              stored = 0;		/* Mission's letter for the next junction */
 	DASH            d;
 	DASH_IN         din;
 	DASH_OUT        dout;
@@ -146,13 +177,13 @@ EXPORT void dashboard_task(INT stacd, void *exinf)
 		s4_state = d.state;
 		if (state_lock(TMO_POL) == E_OK) {
 			app_state.net_online = (d.state == DASH_ONLINE || d.state == DASH_HEARTBEAT) ? 1 : 0;
+			stored = app_state.stored_char;
 			state_unlock();
 		}
 
 		if (din.got_telem && dout.publish_telem) {
-			/* online: the 11-byte binary frame (TEAM.md 7); no stored
-			   character exists yet on this branch */
-			len = dash_pack_telem(&latest, telem_seq++, DASH_CHAR_NONE,
+			/* online: the 11-byte binary frame (TEAM.md 7) */
+			len = dash_pack_telem(&latest, telem_seq++, dash_char_code(stored),
 					      frame, (INT)sizeof(frame));
 			if (len > 0) {
 				s4_frames++;
@@ -177,6 +208,23 @@ EXPORT void dashboard_task(INT stacd, void *exinf)
 			len = dash_pack_debug(&g, debug_seq++, frame, (INT)sizeof(frame));
 			if (len > 0) {
 				send_out(MQTTM_DEBUG, frame, len);
+			}
+			/* A capture finished: send its element widths once. */
+			if (g_lb_bc_trace.seq != bc_seq_sent) {
+				INT n = (INT)g_lb_bc_trace.count, k;
+
+				bc_seq_sent = g_lb_bc_trace.seq;
+				if (n > DASH_BC_TRACE_EDGES) {
+					n = DASH_BC_TRACE_EDGES;
+				}
+				for (k = 0; k < n; k++) {
+					bc_edges[k] = g_lb_bc_trace.edge_us[k];
+				}
+				len = dash_pack_bc_trace((UB)bc_seq_sent, (UB)g_lb_bc_trace.status,
+							 bc_edges, n, bc_frame, (INT)sizeof(bc_frame));
+				if (len > 0) {
+					send_out(MQTTM_BARCODE, bc_frame, len);
+				}
 			}
 		}
 #endif

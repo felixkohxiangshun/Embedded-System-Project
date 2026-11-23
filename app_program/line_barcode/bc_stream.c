@@ -211,6 +211,7 @@ bc_stream_decode (bc_stream_t const * p_stream,
     bc_decode_status_t status                  = BC_DECODE_ERR_NULL;
     uint32_t           work_us[LB_BC_MAX_EDGES] = { 0u };
     uint32_t           count                   = 0u;
+    uint32_t           merged                  = 0u;
     uint32_t           idx                     = 0u;
 
     if ((NULL != p_stream) && (NULL != p_command) && (NULL != p_b_reversed))
@@ -224,8 +225,29 @@ bc_stream_decode (bc_stream_t const * p_stream,
             work_us[idx] = p_stream->edge_us[idx];
         }
 
-        count  = bc_decode_merge_glitches(work_us, count);
+        /* Try the edges as captured first: a clean capture of exactly one
+         * code must not lose a short (but real) element to the glitch
+         * filter.  Only if that fails are the glitches merged away. */
         status = bc_decode_scan(work_us, count, p_command, p_b_reversed);
+
+        if (BC_DECODE_OK != status)
+        {
+            merged = bc_decode_merge_glitches(work_us, count);
+
+            if (merged != count)
+            {
+                status = bc_decode_scan(work_us, merged,
+                                        p_command, p_b_reversed);
+            }
+            else
+            {
+                /* Nothing was merged: the first result stands. */
+            }
+        }
+        else
+        {
+            /* Decoded as captured. */
+        }
     }
     else
     {

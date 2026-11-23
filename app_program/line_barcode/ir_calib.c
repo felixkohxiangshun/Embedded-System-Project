@@ -15,12 +15,12 @@
 int32_t
 ir_calib_raw_to_dark (uint16_t raw_adc)
 {
-    /* Cast: the ADC result is 12 bits (0 to 4095), so it always fits
-     * int32_t. */
+    /* Cast: the ADC result is LB_ADC_BITS bits (0 to LB_ADC_MAX_COUNT), so
+     * it always fits int32_t. */
     int32_t count = (int32_t)raw_adc;
 
-    /* Defensive clamp: a corrupt register value must not leave the 12-bit
-     * range, or the polarity flip below would go negative. */
+    /* Defensive clamp: a corrupt register value must not leave the
+     * LB_ADC_BITS range, or the polarity flip below would go negative. */
     if (count > LB_ADC_MAX_COUNT)
     {
         count = LB_ADC_MAX_COUNT;

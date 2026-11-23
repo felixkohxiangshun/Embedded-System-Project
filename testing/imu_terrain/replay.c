@@ -88,8 +88,8 @@ int main(int argc, char **argv)
 			humps++;
 			printf("  sample %4d  %4ld mm  HUMP DONE  height %d mm  (residual %d um, %d mm long)\n",
 			       i, dist / 1000, l.height_mm, l.residual_um, l.len_mm);
-		} else if (k == IMU_EV_SHOCK) {
-			printf("  sample %4d  %4ld mm  SHOCK\n", i, dist / 1000);
+		} else if (k == IMU_EV_LIFTED) {
+			printf("  sample %4d  %4ld mm  LIFTED\n", i, dist / 1000);
 		}
 		if (trace && (i % 10) == 0) {
 			printf("    %4d %4ld mm  lean %6.1f mm\n", i, dist / 1000,
