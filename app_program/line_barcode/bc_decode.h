@@ -1,6 +1,6 @@
 /** @file bc_decode.h
  *
- * @brief Code 39 decoder for the navigation barcodes "*A*" to "*D*".
+ * @brief Code 39 decoder for the navigation barcodes "*A*" to "*Z*".
  *
  * @par
  * Code 39: each character is 9 elements (5 bars and 4 spaces, starting with

@@ -1,13 +1,13 @@
 /** @file bc_decode.c
  *
- * @brief Code 39 decoder for "*A*" to "*D*".  See bc_decode.h.
+ * @brief Code 39 decoder for "*A*" to "*Z*".  See bc_decode.h.
  *
  * @par
  * Reference: Code 39 character set (ANSI/AIM BC1-1995 / ISO/IEC 16388).  The
  * element patterns used below are written as N (narrow) and W (wide), bar
- * first.  Group 11 barcodes are "*A*" to "*D*" (Barcode & Line
- * Specification); the other letters of the table exist only so that a
- * wrong sample code (F, W, X, Y, Z) is recognised and then ignored.
+ * first.  Any letter A to Z is a valid command: which movement each
+ * letter means is sent to the car over MQTT (csc11/dev/car/map), not
+ * fixed here.
  *
  * @par
  * COPYRIGHT NOTICE: (c) 2026 INF2004 Group 11. Coding standard: BARR-C:2018.

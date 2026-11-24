@@ -1,11 +1,20 @@
 # Robo Pico Car: INF2004 Group 11
 
-The aim of this project is to build an autonomous line-following car. It follows a
-black line, reads Code 39 barcodes (any character A to Z, scanned in either direction) and stores the
-character, then at the next cross junction performs the movement mapped to it: forward, U-turn, left or
-right. The character-to-movement mapping is sent to the car over MQTT before the demo, not hard-coded.
-It also measures hump height, detects shocks, detects obstacles and performs obstacle avoidance, and
-reports to an online dashboard using compact binary messages. Details: [TEAM.md](TEAM.md), section 7.
+The aim of this project is to build an autonomous line-following car on micro T-Kernel 3.0.
+
+| Feature | What the car does |
+|---|---|
+| Line following | Two IR sensors straddle the black line; a PD controller steers, and a lost line is searched for and picked up again |
+| Barcodes | Reads Code 39 barcodes (`*A*` to `*Z*`, in either direction) with a third IR sensor and stores the letter |
+| Junctions | At the next cross junction it carries out the move mapped to the stored letter: U-turn, left, right or straight on. The letter-to-move mapping is sent from the dashboard over MQTT (retained), not hard-coded |
+| Humps | The IMU measures the height of each hump and keeps the tallest |
+| Lift detection | If the car is picked up, the IMU detects it and the car stops |
+| Obstacles | An ultrasonic sensor on a servo stops the car at 30 cm, sweeps ±55° in 5° steps, measures the obstacle's width, picks the side with room and drives round it on a 45° dog-leg, then finds the line again |
+| Dashboard | A web page shows live telemetry, line, barcode, obstacle and IMU data, and has Start/Stop and the junction-mapping controls |
+
+Message formats and interfaces: [TEAM.md](TEAM.md), section 7, and
+[testing/dashboard/CAR_DASHBOARD.md](testing/dashboard/CAR_DASHBOARD.md).
+Videos of every test case: [videos/README.md](videos/README.md).
 
 ## Tech stack
 
@@ -17,18 +26,20 @@ reports to an online dashboard using compact binary messages. Details: [TEAM.md]
 | Compiler | Arm GNU Toolchain, `arm-none-eabi-gcc` (tested with 15.3.Rel1) |
 | Build | GNU `make` (`build_make/`), output is a `.uf2` file |
 | Microcontroller | Raspberry Pi **Pico W** (RP2040, CYW43439 WiFi) on a Cytron **Robo Pico** |
-| Communication | WiFi + MQTT, compact binary messages: 11-byte telemetry (QoS 0), 3-byte movement mapping (QoS 1) |
-| Tests | Unit tests on a PC (`testing/host`), on-target self-tests (`make TEST=1`), manual test logs |
+| Communication | WiFi + MQTT (Mosquitto broker on a laptop), compact bit-packed binary messages: 11-byte telemetry every 500 ms, 17-byte debug every 100 ms, 8-byte IMU every 200 ms, 1-byte Start/Stop, 3-byte junction mapping (QoS 1, retained) |
+| Dashboard | HTML and JavaScript page (`app_program/dashboard/web/`) connected to the broker over MQTT WebSocket |
+| Tests | Unit tests on a PC (`testing/host`, `testing/line_barcode`, the dashboard page's `node --test`), on-target self-tests (`TEST=1`), manual test logs |
 
 ### Hardware
 
 | Part | Used for | Pins |
 |---|---|---|
 | 2 DC motors with quadrature encoders | driving and speed feedback | motors GP8 to GP11, encoders GP2, GP3, GP6, GP7 |
-| 3 IR sensors | left and centre follow the line, right reads barcodes | GP26, GP27, GP28 (ADC) |
-| LSM303DLHC IMU | hump height and shock | GP4 (SDA), GP5 (SCL) |
-| HC-SR04 ultrasonic sensor on a servo | obstacle detection and profiling | echo GP16, trigger GP17, servo GP12 |
-| Start/stop button, status LED | operator control | GP20, GP18 |
+| 2 IR line sensors | follow the line (they straddle it) and find junctions | GP26 (ADC0), GP27 (ADC1) |
+| IR barcode sensor | reads the barcodes (digital DO output) | GP28 |
+| LSM303DLHC accelerometer | hump height and lift detection | GP4 (SDA), GP5 (SCL), I2C0 |
+| HC-SR04 ultrasonic sensor on a servo | obstacle detection, width and bypass side sensing | echo GP16, trigger GP17, servo GP12 |
+| Start/stop button, NeoPixel status LEDs | operator control and state | GP20, GP18 |
 
 The full pin table, with owners, is in [TEAM.md](TEAM.md). 
 
@@ -37,10 +48,10 @@ The full pin table, with owners, is in [TEAM.md](TEAM.md).
 | Member | Student ID | Subsystem (folder) | Responsible for |
 |---|---|---|---|
 | Tan Kun Yi Dave | 2502730 | Motor control (`app_program/motor_control/`) | PID speed control, wheel encoders, drift correction, 90° and 180° turns, start button |
-| Vania Teng | 2503206 | Line following and barcode (`app_program/line_barcode/`) | three IR sensors, 1 kHz sampler, line following, cross-junction detection, Code 39 decoding (A–Z, both directions) |
-| Lau Sook Yee | 2503178 | IMU and terrain (`app_program/imu_terrain/`) | hump height, tallest hump, shock detection |
-| Wong Jun Kai | 2500258 | Dashboard and telemetry (`app_program/dashboard/`) | binary telemetry frame every 500 ms, WiFi and MQTT status, heartbeat, movement mapping received over MQTT |
-| Felix Koh | 2500256 | Mission and obstacle avoidance (`app_program/mission_obstacle/`) | system state machine, stored barcode command carried out at cross junctions, ultrasonic and servo obstacle scan, bypass, system integration |
+| Vania Teng | 2503206 | Line following and barcode (`app_program/line_barcode/`) | IR sensors, 1 kHz sampler, line following and recovery, cross-junction detection, Code 39 decoding (A–Z, both directions) |
+| Lau Sook Yee | 2503178 | IMU and terrain (`app_program/imu_terrain/`) | hump height, tallest hump, lift detection |
+| Wong Jun Kai | 2500258 | Dashboard and telemetry (`app_program/dashboard/`) | binary telemetry and debug frames, WiFi and MQTT link, heartbeat, Start/Stop and junction mapping received over MQTT, web dashboard |
+| Felix Koh | 2500256 | Mission and obstacle avoidance (`app_program/mission_obstacle/`) | system state machine, stored barcode letter carried out at cross junctions, ultrasonic and servo obstacle scan and width, bypass, system integration |
 
 Each subsystem has its own folder and its own test log in `testing/<folder>/TEST_LOG.md`.
 Only the owner edits their folder. Shared files (`app_program/app.h`, `app_if.h`,
@@ -60,6 +71,8 @@ app_program/        our firmware: start with app_main.c
 config/             kernel limits and device switches
 build_make/         the make build
 testing/            test logs per subsystem, plus integration, system and PC tests
+  dashboard/          broker launcher, dashboard build script, CAR_DASHBOARD.md
+videos/             links to the test case videos (YouTube)
 docs/               the template's original guide (toolchain set-up in detail)
 kernel/ lib/ include/ device/ etc/   micro T-Kernel and its drivers (template code, do not edit)
 TEAM.md             owners, pins, peripherals, task priorities, interfaces
@@ -111,8 +124,9 @@ cd Embedded-System-Project/build_make
 make -j8
 ```
 
-The firmware is `build_make/mtk3pico_smp1_usb_cdc_wifi.uf2`. For the first bring-up on the
-car, build single-core with `make SMP=0 -j8`.
+The firmware is `build_make/mtk3pico_smp1_usb_cdc_wifi.uf2`. Build the car single-core
+(`make SMP=0 -j8`): in the dual-core build the motor task never ran. For the full car with
+the dashboard, use the dashboard build in step 4.
 
 | Option | Values (default first) | Meaning |
 |---|---|---|
@@ -142,18 +156,30 @@ start the car and press it again to stop. The status LED blinks slowly when idle
 
 ### 4. Dashboard (WiFi and MQTT)
 
-For the online dashboard build with `NET=lwip MQTT=1` and copy
-`config/wifi_secrets.example.h` to `config/wifi_secrets.h`, then enter your network
-details. That file is ignored by git, so never commit it. Without it the build stops with
-`fatal error: wifi_secrets.h: No such file or directory`. The link between the dashboard
-task and the MQTT client is not finished yet (see below). Until then the telemetry is
-printed on the console instead. The current code still formats it as JSON; the agreed
-binary formats that replace it are in [TEAM.md](TEAM.md), section 7.
+1. Copy `config/wifi_secrets.example.h` to `config/wifi_secrets.h` and enter the WiFi
+   name and password, the laptop's address (`MQTT_BROKER_IP`) and a client ID. That file is
+   ignored by git: never commit it.
+2. Start the broker (Mosquitto, port 1883 for the car, WebSocket 9001 for the page):
+   `python3 testing/dashboard/broker/start_lan_broker.py`. It prints the address to use.
+3. Build and flash the car firmware with the dashboard link:
+   `sh testing/dashboard/broker/build_dashboard.sh`, then copy
+   `build_make/mtk3pico_dashboard.uf2` to the Pico (or flash the `.elf` with a debug probe).
+4. Serve the page: `python3 app_program/dashboard/web/serve.py`, then open
+   <http://127.0.0.1:8765/car.html>. The badge turns green ("Car live") once frames arrive.
+5. Before the run, type the junction letters (U-turn, left, right, straight) and press
+   **Send mapping**. The broker keeps it, so the car gets it again whenever it reconnects.
+   Start and Stop work from the page as well as from the GP20 button.
+
+Topics, frame layouts and troubleshooting:
+[testing/dashboard/CAR_DASHBOARD.md](testing/dashboard/CAR_DASHBOARD.md). Without WiFi the
+car still drives; Mission leaves INIT after 20 s.
 
 ## Testing
 
 ```sh
-cd testing/host && make run        # 86 checks of the logic, on your computer
+cd testing/host && make run        # logic tests on your computer: 226 checks, then the
+                                   # line/barcode tests (63 checks and the digital barcode cases)
+node --test app_program/dashboard/web/car_model.test.mjs   # dashboard page decoders
 cd build_make && make TEST=1 -j8   # on-target tests: read the console for [TEST] ... PASS/FAIL
 ```
 
