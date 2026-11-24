@@ -7,8 +7,7 @@
  *	build stays still.  Switch one block on at a time:
  *	  S1_TEST_MOVE      S1-M01         wheels lifted
  *	  S1_TEST_FLOOR     S1-M03..M05, M10  car on the floor
- *	  S1_TEST_CMDS      S1-M11..M18    wheels lifted
- *	  S1_TEST_BYPASS    S1-M19         car on the floor
+ *	  S1_TEST_CMDS      S1-M11..M17    wheels lifted
  *	  S1_TEST_DIST      S1-M21         car on the floor beside a ruler
  *	  S1_TEST_TURN_BTN  button turns   car on the floor, never returns
  *	  S1_TEST_FWD_BTN   GP21 forward   car on the floor, never returns
@@ -20,10 +19,7 @@
 
 /* Motion test blocks: switch on one at a time (see TEST_LOG.md) */
 #ifndef S1_TEST_CMDS
-#define S1_TEST_CMDS		0	/* S1-M11..S1-M18, wheels lifted */
-#endif
-#ifndef S1_TEST_BYPASS
-#define S1_TEST_BYPASS		0	/* S1-M19, car on the floor */
+#define S1_TEST_CMDS		0	/* S1-M11..S1-M17, wheels lifted */
 #endif
 #ifndef S1_TEST_DIST
 #define S1_TEST_DIST		0	/* S1-M21, car on the floor beside a ruler */
@@ -34,10 +30,8 @@
 
 #if APP_TEST
 
-#if S1_TEST_CMDS || S1_TEST_BYPASS || S1_TEST_DIST || S1_TEST_FWD_BTN
+#if S1_TEST_CMDS || S1_TEST_DIST || S1_TEST_FWD_BTN
 IMPORT ID tid_mission;
-
-#define S1_BYPASS_WIDTH_MM	100	/* obstacle width sent with NAV_BYPASS */
 
 /* Pause Mission so only the test talks to Motor.  Never pause it while it
    holds or waits for the app_state lock. */
@@ -84,7 +78,7 @@ LOCAL INT s1_dist_mm(void)
 }
 #endif /* S1_TEST_DIST */
 
-#if S1_TEST_CMDS || S1_TEST_BYPASS
+#if S1_TEST_CMDS
 /* The command-done counter Motor publishes for Mission (IF-11) */
 LOCAL UW s1_done_seq(void)
 {
@@ -107,31 +101,8 @@ LOCAL INT s1_wait_leave(UB st, INT max_ms)
 	}
 	return t;
 }
-
-/* Run one bypass on 'side' and check it completes.  Returns TRUE when it
-   started turning the right way, ended STOPPED and moved the done counter
-   by exactly one. */
-LOCAL BOOL s1_bypass(INT side)
-{
-	UW  seq0 = s1_done_seq();
-	INT bl = enc_cnt[0], br = enc_cnt[1];
-	INT dl, dr, t;
-	BOOL ok;
-
-	s1_nav(NAV_BYPASS, side, S1_BYPASS_WIDTH_MM);
-	tk_dly_tsk(300);
-	dl = enc_cnt[0] - bl;
-	dr = enc_cnt[1] - br;
-	ok = (s1_state == MOT_BYPASS) &&
-	     ((side > 0) ? (dl > 0 && dr < 0) : (dl < 0 && dr > 0));
-	t = s1_wait_leave(MOT_BYPASS, 30000);
-	tk_dly_tsk(50);
-	tm_printf((UB*)"[CMDS] bypass side=%d: first 300 ms enc_l=%d enc_r=%d, took %d ms, state=%d done_seq +%d\n",
-		  side, dl, dr, t + 300, (INT)s1_state, (INT)(s1_done_seq() - seq0));
-	return ok && (s1_state == MOT_STOPPED) && (s1_done_seq() == seq0 + 1U);
-}
-#endif /* S1_TEST_CMDS || S1_TEST_BYPASS */
-#endif /* S1_TEST_CMDS || S1_TEST_BYPASS || S1_TEST_DIST || S1_TEST_FWD_BTN */
+#endif /* S1_TEST_CMDS */
+#endif /* S1_TEST_CMDS || S1_TEST_DIST || S1_TEST_FWD_BTN */
 
 #if S1_TEST_CMDS
 /* Drive 2 s at 'steer', sending NAV_STEER every 50 ms so the Mission
@@ -317,7 +288,7 @@ EXPORT void motor_control_test(void)
 	}
 #endif
 #if S1_TEST_CMDS
-	/* S1-M11..S1-M18: every command Mission can send, with the wheels
+	/* S1-M11..S1-M17: every command Mission can send, with the wheels
 	   lifted.  Mission is paused; this test stands in for it. */
 	{
 		INT  l0, r0, l1, r1, dl, dr, bl, br, k;
@@ -382,7 +353,7 @@ EXPORT void motor_control_test(void)
 		s1_nav(NAV_TURN, 90, 0);
 		tk_dly_tsk(200);
 		s1_nav(NAV_TURN, -90, 0);
-		s1_nav(NAV_BYPASS, OBS_SIDE_LEFT, S1_BYPASS_WIDTH_MM);
+		s1_nav(NAV_MOVE, 100, 0);
 		(void)s1_wait_leave(MOT_TURNING, 5000);
 		tk_dly_tsk(300);
 		dl = enc_cnt[0] - bl;
@@ -391,7 +362,7 @@ EXPORT void motor_control_test(void)
 			  dl, dr, (INT)s1_state, (INT)(s1_done_seq() - seq0));
 		TEST_CHECK("S1-M15", s1_state == MOT_STOPPED && s1_done_seq() == seq0 + 1U &&
 			   dl > 0 && dr < 0,
-			   "NAV_TURN / NAV_BYPASS during a turn ignored; first turn finishes");
+			   "NAV_TURN / NAV_MOVE during a turn ignored; first turn finishes");
 
 		/* S1-M16: EVT_STOP aborts a turn and does not report it done */
 		seq0 = s1_done_seq();
@@ -423,34 +394,8 @@ EXPORT void motor_control_test(void)
 		TEST_CHECK("S1-M17", k == 1 && s1_state == MOT_STOPPED && s1_done_seq() == seq0 + 1U,
 			   "EVT_START during a turn ignored; turn finishes");
 
-		/* S1-M18: the bypass path runs all its segments, both sides */
-		TEST_CHECK("S1-M18a", s1_bypass(OBS_SIDE_RIGHT), "NAV_BYPASS right: turns right first, ends STOPPED, done +1");
-		tk_dly_tsk(500);
-		TEST_CHECK("S1-M18b", s1_bypass(OBS_SIDE_LEFT), "NAV_BYPASS left: turns left first, ends STOPPED, done +1");
-
 		tk_set_flg(flg_evt, EVT_STOP);
 		tm_printf((UB*)"[CMDS] done\n");
-	}
-#endif
-#if S1_TEST_BYPASS
-	/* S1-M19: bypass path on the floor.  The car should end on its start
-	   line, BYPASS_LEG_MM + width ahead, facing the same way. */
-	{
-		static const INT side[2] = { OBS_SIDE_RIGHT, OBS_SIDE_LEFT };
-		INT k;
-
-		s1_pause_mission();
-		tk_set_flg(flg_evt, EVT_STOP);
-		for (k = 0; k < 2; k++) {
-			tm_printf((UB*)"[BYPASS] side %d in 5 s - mark the start position and heading\n",
-				  side[k]);
-			tk_dly_tsk(5000);
-			TEST_CHECK("S1-M19", s1_bypass(side[k]), "floor bypass completes (measure the end position)");
-			/* BYPASS_LEG_MM (task_motor.c) + the width */
-			tm_printf((UB*)"[BYPASS] expected: %d mm ahead, 0 mm sideways, 0 deg - measure now\n",
-				  150 + S1_BYPASS_WIDTH_MM);
-			tk_dly_tsk(10000);		/* time to measure */
-		}
 	}
 #endif
 #if S1_TEST_DIST

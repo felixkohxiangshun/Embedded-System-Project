@@ -13,7 +13,9 @@ EXPORT ER dashboard_init(void)
 	if (mbf_telem < E_OK) {
 		return mbf_telem;
 	}
-	mbf_mqtt_out = app_make_mbf((INT)sizeof(MQTT_MSG), 2);
+	/* up to four frames in one dashboard tick: telemetry, debug, IMU and
+	   a barcode trace */
+	mbf_mqtt_out = app_make_mbf((INT)sizeof(MQTT_MSG), 4);
 	if (mbf_mqtt_out < E_OK) {
 		return mbf_mqtt_out;
 	}

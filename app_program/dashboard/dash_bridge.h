@@ -22,6 +22,8 @@
 #define DASH_BRIDGE_DEBUG	5	/* publish on the debug topic */
 #define DASH_BRIDGE_HEARTBEAT	6	/* publish on the heartbeat topic */
 #define DASH_BRIDGE_BARCODE	7	/* publish on the barcode topic */
+#define DASH_BRIDGE_IMU		8	/* publish on the imu topic */
+#define DASH_BRIDGE_MAP		9	/* received on the map topic */
 
 /* Next message to publish.  Returns 1 and fills kind/data/len, or 0 if
    there is none.  data must hold max bytes; longer messages are dropped. */

@@ -9,13 +9,15 @@ car (Pico W) --WiFi, MQTT--> Mosquitto on the Mac --WebSocket--> car.html
 
 | Topic | Frame | Rate | Contents |
 |---|---|---|---|
-| `csc11/dev/car/telemetry` | 11 bytes | 500 ms | state, speed, distance, heading, line seen, obstacle, last and stored character, tallest hump, shock, faults |
+| `csc11/dev/car/telemetry` | 11 bytes | 500 ms | state, speed, distance, heading, line seen, obstacle, last and stored character, tallest hump, lifted, faults |
 | `csc11/dev/car/barcode` | 3 + 2 per width (≤ 81 bytes) | once per barcode capture | seq, decode result, edge count, then each bar/space width as u16 LE in 0.1 ms, bar first |
-| `csc11/dev/car/debug` | 24 bytes | 100 ms | darkC, darkR, line error, steering, line mode, barcode edges/decoded/failed/last, last decode result and edge count, ultrasonic mm, motor state, scan state, last sweep mm at all five positions, ultrasonic echo start delay and edge count and chosen side |
+| `csc11/dev/car/debug` | 17 bytes | 100 ms | darkC, darkR, line error, steering, line mode, barcode edges/decoded/failed/last, last decode result and edge count, ultrasonic mm, motor state, scan state, chosen side, barcode pass exit, measured obstacle width and its left half, last bypass return |
+| `csc11/dev/car/imu` | 8 bytes | 200 ms | IMU state, calibrated, lean height now (0.1 mm), last and tallest hump, humps measured, lift detector (mg x 10 ms samples, trips at 4000) |
 | `csc11/dev/car/heartbeat` | 1 byte | 1 s, only when telemetry stops | system state |
-| `csc11/dev/car/cmd` | | | subscribed, for the movement mapping later |
+| `csc11/dev/car/cmd` | 1 byte | on Start / Stop | bit 0: 1 = START, 0 = STOP; other bits 0 |
+| `csc11/dev/car/map` | 3 bytes, retained, QoS 1 | on Send mapping | junction letters: 5 bits each for U-turn, left, right, straight (0-25 = A-Z, 31 = none), LSB first, then 4 spare bits = 0. Duplicates refused. A letter not mapped also goes straight. The car takes it at any time, even before Start |
 
-Frames are packed by `dash_pack_telem()` / `dash_pack_debug()` in
+Frames are packed by `dash_pack_telem()` / `dash_pack_debug()` / `dash_pack_imu()` in
 `app_program/dashboard/dash_logic.c` with `protocol_bits`: each field uses the
 bits its maximum needs, in order, **least significant bit first**. The page's
 decoder is `app_program/dashboard/web/car_model.mjs`; both have tests.

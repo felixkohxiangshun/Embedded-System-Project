@@ -148,7 +148,10 @@ IMPORT ID app_make_flg(void);
 #define MBF_SEND(id, m)		tk_snd_mbf((id), (void*)&(m), (INT)sizeof(m), TMO_POL)
 #define MBF_RECV(id, m, tmo)	tk_rcv_mbf((id), (void*)&(m), (tmo))
 
-/* Hardware timer, 1 MHz free running (microseconds, wraps every 71 min) */
+/* Hardware timer, free running.  NOT 1 MHz on this board: nothing starts
+   the watchdog tick that clocks it, so it counts at 23.4 kHz (one count =
+   42.7 us; see TIMER_COUNTS_TO_US in mission_obstacle/scan_logic.h).  The
+   name is kept; Line, Barcode and the button debounce were tuned on it. */
 #define APP_NOW_US()		((UW)in_w(TIMER_TIMELR))
 
 /* The kernel releases the PWM block from reset only when it uses PWM for its

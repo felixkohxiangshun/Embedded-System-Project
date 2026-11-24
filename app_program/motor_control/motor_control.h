@@ -5,9 +5,9 @@
  *
  *	Does:         PID speed regulation of both wheels every 10 ms, encoder-based
  *	              distance (FR-12), straight-line drift trim (FR-13), 90/180
- *	              degree pivots and the obstacle bypass path, and the start
- *	              button.  States: STOPPED, DRIVING, TURNING, BYPASS,
- *	              ENCODER_FAULT.
+ *	              degree pivots and straight moves by encoder count (the bypass
+ *	              legs), and the start button.  States: STOPPED, DRIVING,
+ *	              TURNING, ENCODER_FAULT.
  *	Task:         motor_task (PRI_MOTOR, highest, woken by cyc_motor every 10 ms)
  *	Peripherals:  PWM slices 4 and 5 (GP8..GP11); GPIO interrupt bank
  *	              (encoders GP2/GP3/GP6/GP7 and BTN_START GP20)

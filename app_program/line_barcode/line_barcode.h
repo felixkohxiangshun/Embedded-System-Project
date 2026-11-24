@@ -50,18 +50,6 @@
 #include "../app.h"
 #include "lb_config.h"
 
-/** Barcode task states (design review statechart 6.1). */
-#define LB_BC_STATE_WAITING     0u
-#define LB_BC_STATE_CAPTURING   1u
-#define LB_BC_STATE_DECODING    2u
-#define LB_BC_STATE_POST        3u
-#define LB_BC_STATE_FAILED      4u
-
-/** Line task states (design review statechart 6.1). */
-#define LB_LINE_STATE_SAMPLING  0u
-#define LB_LINE_STATE_STEERING  1u
-#define LB_LINE_STATE_LOST      2u
-
 /** Run-time counters.  They are written by the tasks and read by the
  *  on-target tests, the trace output and the debugger; they are never used
  *  to make a control decision.  Each field is written by one context only. */
@@ -69,22 +57,15 @@ typedef struct
 {
     volatile uint32_t sampler_runs;     /* runs of ir_sampler_isr */
     volatile uint32_t sampler_max_us;   /* longest run of ir_sampler_isr */
-    volatile uint32_t edges_sent;       /* edges put on mbf_edge */
     volatile uint32_t edges_dropped;    /* edges lost, mbf_edge was full */
     volatile uint32_t line_ticks;       /* runs of line_task */
     volatile uint32_t line_dt_max_ms;   /* longest gap between two ticks */
-    volatile uint32_t line_state;       /* LB_LINE_STATE_xxx */
     volatile int32_t  line_dark_centre; /* last darkness, centre (0 to 1000) */
     volatile int32_t  line_dark_right;  /* last darkness, right */
     volatile int32_t  line_err;         /* last position error */
     volatile int32_t  line_steer;       /* last steering sent */
     volatile uint32_t line_mode;        /* line_recov_mode_t */
-    volatile uint32_t line_recoveries;  /* number of times tracking resumed */
-    volatile uint32_t line_timeouts;    /* ticks sent with the TIMEOUT flag */
-    volatile uint32_t line_junctions;   /* side branches found */
-    volatile uint32_t bc_state;         /* LB_BC_STATE_xxx */
     volatile uint32_t bc_edges;         /* edges received by barcode_task */
-    volatile uint32_t bc_seen;          /* codes announced (BC_SEEN) */
     volatile uint32_t bc_decoded;       /* codes decoded (BC_OK) */
     volatile uint32_t bc_failed;        /* codes rejected (BC_FAIL) */
     volatile uint32_t bc_last;          /* last decoded character, 0 = none */

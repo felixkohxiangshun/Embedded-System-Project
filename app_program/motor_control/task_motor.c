@@ -3,7 +3,7 @@
  *	Motor control -- the Motor task: PID speed control of both wheels and the
  *	Motor statechart (design review 6.3).
  *
- *	States: STOPPED, DRIVING, TURNING, BYPASS, ENCODER_FAULT
+ *	States: STOPPED, DRIVING, TURNING, ENCODER_FAULT
  *
  *	Inputs   mbf_nav   steering and mode commands from Mission (IF-08)
  *	         flg_evt   START / STOP / RESUME from Mission (IF-10)
@@ -20,12 +20,11 @@
 EXPORT volatile UW s1_ticks;
 EXPORT volatile UB s1_state;
 
-/* A bypass is a short list of segments: pivot turns and straight runs */
+/* A Motor sequence: a pivot turn or a straight run, ended by encoder count
+   (the obstacle bypass is sent by Mission one leg at a time) */
 #define SEG_TURN	1	/* val = degrees, + right */
 #define SEG_FWD		2	/* val = mm, - = backwards */
-#define BYPASS_LEG_MM	150	/* extra distance beside the obstacle [CAL] */
-#define BYPASS_MARGIN_MM 60	/* sideways clearance added to half width [CAL] */
-#define MAX_SEGS	8
+#define MAX_SEGS	1	/* one turn or one straight move per command */
 
 typedef struct { UB kind; INT val; INT mmps; } SEG;	/* mmps: SEG_FWD speed */
 
@@ -121,24 +120,6 @@ LOCAL void start_move(INT mm, INT mmps)
 	seq_start(MOT_TURNING);
 }
 
-/* Go round an obstacle of 'width' mm on 'side' (+1 right, -1 left):
-   out, past, back, onto the line, then face along it again. */
-LOCAL void start_bypass(INT side, INT width)
-{
-	INT lateral = width / 2 + BYPASS_MARGIN_MM;
-	INT deg = 90 * (side >= 0 ? 1 : -1);
-
-	segs[0].kind = SEG_TURN; segs[0].val = deg;
-	segs[1].kind = SEG_FWD;  segs[1].val = lateral;  segs[1].mmps = SPEED_SLOW_MMPS;
-	segs[2].kind = SEG_TURN; segs[2].val = -deg;
-	segs[3].kind = SEG_FWD;  segs[3].val = BYPASS_LEG_MM + width;  segs[3].mmps = SPEED_SLOW_MMPS;
-	segs[4].kind = SEG_TURN; segs[4].val = -deg;
-	segs[5].kind = SEG_FWD;  segs[5].val = lateral;  segs[5].mmps = SPEED_SLOW_MMPS;
-	segs[6].kind = SEG_TURN; segs[6].val = deg;
-	seg_n = 7;
-	seq_start(MOT_BYPASS);
-}
-
 LOCAL void handle_nav(const MSG_NAV *m)
 {
 	if (state == MOT_ENCODER_FAULT) {
@@ -154,21 +135,13 @@ LOCAL void handle_nav(const MSG_NAV *m)
 	case NAV_RESUME:
 		speed_set = SPEED_NORMAL_MMPS;
 		break;
-	case NAV_SPEED:			/* Mission's obstacle tracking */
-		speed_set = clamp_i(m->arg, 0, SPEED_NORMAL_MMPS);
-		break;
 	case NAV_TURN:
-		if (state != MOT_TURNING && state != MOT_BYPASS) {
+		if (state != MOT_TURNING) {
 			start_turn(m->arg);
 		}
 		break;
-	case NAV_BYPASS:
-		if (state != MOT_TURNING && state != MOT_BYPASS) {
-			start_bypass(m->arg, m->arg2);
-		}
-		break;
 	case NAV_MOVE:
-		if (state != MOT_TURNING && state != MOT_BYPASS) {
+		if (state != MOT_TURNING) {
 			start_move(m->arg, m->arg2);
 		}
 		break;
@@ -350,7 +323,6 @@ EXPORT void motor_task(INT stacd, void *exinf)
 			}				/* else: Mission silent, hold still */
 			break;
 		case MOT_TURNING:
-		case MOT_BYPASS:
 			step_sequence(&tl, &tr);
 			break;
 		default:			/* STOPPED, ENCODER_FAULT */

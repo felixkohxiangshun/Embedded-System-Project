@@ -62,7 +62,7 @@ Define a test here before running it. Test IDs never change.
 | S2-M02 | follow the line around the track 5 laps | FR-01 | manual | Run with Motor and Mission. | no loss of line |
 | S2-M03 | barcode live decode rate ≥ 95 % over 20 passes (A, B, C, D) | FR-02, NFR-05 | manual | Pass each barcode 5 times at operating speed. | ≥ 19 of 20 correct |
 | S2-M04 | line follows while a barcode is scanned | FR-02 | manual | Scan a barcode while on the line. | car does not leave the line |
-| S2-M05 | faded line: lay a strip of white paper or tape over 100 mm of the line, then 200 mm | FR-01 | manual | Run at normal speed past the strip. | car crosses it and picks the line up again; `line_recoveries` counter rises by 1 |
+| S2-M05 | faded line: lay a strip of white paper or tape over 100 mm of the line, then 200 mm | FR-01 | manual | Run at normal speed past the strip. | car crosses it and picks the line up again (dashboard Line mode returns to TRACK) |
 | S2-M06 | slight veer: put a thin 3 mm wedge under one side so the car drifts, over a half-faded stretch | FR-01 | manual | Run past it. | car returns to the line; no FAULT_RECOVERY |
 | S2-M07 | line missing for good (end of line): the car reports the loss | FR-01 | manual | Lift the car off or let it run past the end of the line. | Mission enters FAULT_RECOVERY about 3 s after the line is gone |
 | S2-M08 | barcode passes at slow (60 mm/s) and normal (120 mm/s) speed, all four codes, 5 each | FR-02, NFR-05 | manual | Print `gen_patterns.py sheet`, lay beside the line. | ≥ 38 of 40 correct, 0 wrong turns |

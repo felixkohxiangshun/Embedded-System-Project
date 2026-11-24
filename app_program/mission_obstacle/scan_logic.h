@@ -2,31 +2,17 @@
  *	scan_logic.h
  *	Mission/obstacle -- pure obstacle profiling (no hardware, no kernel calls).
  *
- *	The servo turns the ultrasonic sensor through five positions (FR-08):
- *	far left, near left, centre, near right, far right, about 45 and 22.5
- *	degrees each side.  Each position is a servo pulse width, not a formula,
- *	so a non-linear servo still points right.  Treating the front of the
- *	obstacle as a flat face at the distance D measured straight ahead, a
- *	beam at angle a would read D / cos(a) if it still hit the obstacle.  A
- *	reading no longer than that (plus a tolerance) is a "hit".  The outermost
- *	hit on each side gives that side's half width; the far beam's reading
- *	beyond the edge gives the clearance.
- *
- *	An estimate from five samples.  NFR-09 asks for width within 20 %;
- *	check the real error on known boxes and tune the constants [CAL].
+ *	The servo turns the ultrasonic sensor from 55 degrees left to 55 degrees
+ *	right in 5 degree steps (FR-08); scan_profile() turns the readings into
+ *	the obstacle's width and the side to go round (see below).  The servo
+ *	is aimed through calibrated pulse widths (scan_angle_us), so a
+ *	non-linear servo still points right.
  */
 
 #ifndef SCAN_LOGIC_H
 #define SCAN_LOGIC_H
 
-#define SCAN_ANGLES		5
-#define SCAN_FAR_LEFT		0	/* reading index */
-#define SCAN_NEAR_LEFT		1
-#define SCAN_CENTRE		2
-#define SCAN_NEAR_RIGHT		3
-#define SCAN_FAR_RIGHT		4
-
-/* Servo pulse width (us) at each position, measured on the car with
+/* Servo pulse width (us) at each calibrated angle, measured on the car with
    S5_TEST_SERVO_CAL on 2026-11-22 after the sensor was moved out in front
    of the car.  The car's LEFT is the LARGER pulse.  The servo is not
    symmetric about the centre, and reaches at most 70 degrees each way. */
@@ -37,67 +23,106 @@
 #define SCAN_US_FAR_RIGHT	1200	/* 45 deg right */
 #define SCAN_US_60_LEFT		2040
 #define SCAN_US_60_RIGHT	1080
-#define SCAN_US_SIDE_LEFT	2120	/* 70 deg left, the most it turns */
+#define SCAN_US_SIDE_LEFT	2180	/* 70 deg left (2026-11-25: was 2120, only
+					   +540 us against the right's -600; the
+					   bypass's left side reading saw nothing) [CAL] */
 #define SCAN_US_SIDE_RIGHT	980	/* 70 deg right, the most it turns */
 #define SCAN_MAX_AIM_DEG	70
 
-/* cos / sin / tan of each position's angle in thousandths (45 and 22.5
-   degrees).  Change them with the pulse widths if other angles are used. */
-#define SCAN_FAR_COS_PM		707
-#define SCAN_FAR_SIN_PM		707
-#define SCAN_FAR_TAN_PM		1000
-#define SCAN_NEAR_COS_PM	924
-#define SCAN_NEAR_TAN_PM	414
-#define SCAN_NEAR_SIN_PM	383
-#define SCAN_WIDE_COS_PM	342	/* 70 degree beams */
-#define SCAN_WIDE_SIN_PM	940
-#define SCAN_WIDE_DEG		70	/* the extra sweep readings, each side */
-
 #define SCAN_NO_ECHO		0	/* reading value meaning "no valid echo" */
-#define SCAN_NOT_MEASURED	(-1)	/* scan_evaluate_wide: no 70 degree reading */
-#define SCAN_SIDE_MARGIN_MM	100	/* openness this much bigger picks that side [CAL] */
 #define SCAN_MAX_RANGE_MM	2000	/* an unanswered beam counts as this far */
-#define SCAN_HIT_TOL_MM		40	/* tolerance on the flat-face model [CAL] */
-#define SCAN_CAR_CLEAR_MM	180	/* room the car needs beside the obstacle [CAL] */
 
-/* How far out to one side the obstacle was still seen (MSG_OBS.extent) */
-#define SCAN_EXTENT_CENTRE	0	/* only by the centre beam: narrow */
-#define SCAN_EXTENT_NEAR	1	/* the 22.5 degree beam too */
-#define SCAN_EXTENT_FAR		2	/* the 45 degree beam too: wide */
+/* ---- The sweep and the obstacle profile --------------------------------
+ * (2026-11-24: the calculation of the INF2004 group LordPercivalXII,
+ * app_program/subsystem5/obstacle_geometry.c, on this car's sweep.)
+ * The servo reads straight ahead, steps out to SCAN_SWEEP_DEG left, returns
+ * to the middle, then steps out to SCAN_SWEEP_DEG right, in SCAN_STEP_DEG10
+ * steps (each reading a median of three).  Then:
+ *  - the obstacle is the nearest reading plus every neighbouring reading
+ *    within SCAN_BAND_MM of it; its edges are where that run ends;
+ *  - each edge angle is moved half a step out and half the beam
+ *    (SCAN_BEAM_DEG) in: the beam starts to see an edge half a beam
+ *    before pointing at it;
+ *  - the face is taken square to the direction of its centre, at the
+ *    closest reading's distance corrected to that centre; width = face
+ *    distance x (tan right edge - tan left edge), both from the centre;
+ *  - the clearance on each side is the nearest reading beyond that edge;
+ *    an obstacle running past the sweep's end on a side is "unseen, not
+ *    blocked" there (edge out);
+ *  - the sideways move to clear each edge is SCAN_PATH_HALF_MM (half the
+ *    car plus 4 cm) beyond the edge's sideways position; a side has room
+ *    if its clearance is more than that move (kept between
+ *    SCAN_OFFSET_MIN_MM and SCAN_OFFSET_MAX_MM) plus SCAN_CLEAR_MARGIN_MM,
+ *    or if its edge is out;
+ *  - side: the one with room; with room on both, the smaller move. */
+/* 2026-11-25: 5 deg steps over +-55 deg (was +-70 deg; nothing useful
+   was heard beyond about 55 deg).  2.5 deg steps were tried and dropped. */
+#define SCAN_STEP_DEG10		50	/* the step, tenths of a degree */
+#define SCAN_SWEEP_DEG		55	/* the sweep: +-55 deg */
+#define SCAN_STEPS		23	/* -55 .. +55 every 5 deg */
+#define SCAN_STEP_CENTRE	11	/* index of 0 deg; index i = (i - 11) x 5 deg */
+#define SCAN_BAND_MM		30	/* readings this close to the nearest: the obstacle */
+#define SCAN_BEAM_DEG		15	/* the beam's width */
+#define SCAN_PATH_HALF_MM	115	/* half the car (7.5 cm) + 4 cm clearance */
+#define SCAN_OFFSET_MIN_MM	100
+#define SCAN_OFFSET_MAX_MM	300	/* stays on the track mat */
+#define SCAN_CLEAR_MARGIN_MM	40
+#define SCAN_WIDTH_MAX_MM	1023	/* sent in 10 bits */
+
+/* Calibration of the width on this car (2026-11-25).  The sensor hears an
+   obstacle far past its edges, so the method above reads it too wide, but
+   in step with its real width.  Centred boxes at the first sweep
+   (29-30 cm): 8 cm read 436, 20 cm 521 (twice), 40 cm 637; a straight line
+   through them, real = 1.59 x read - 614, is within 15 mm of all three;
+   it still read high on the car, so 100 mm more was taken off, then 50 mm
+   given back (- 664).
+   Measured on a +-70 deg sweep, now +-55 deg: recheck on known boxes.
+   It only holds at that distance: outside SCAN_CAL_D_MIN_MM ..
+   SCAN_CAL_D_MAX_MM (e.g. after creeping closer) the width is left as
+   read.  The half widths are scaled with it. [CAL] */
+#define SCAN_WIDTH_GAIN_PM	1590	/* x 1000 */
+#define SCAN_WIDTH_OFFSET_MM	664
+#define SCAN_CAL_D_MIN_MM	250
+#define SCAN_CAL_D_MAX_MM	330
 
 typedef struct {
 	INT	side;			/* OBS_SIDE_LEFT / OBS_SIDE_RIGHT */
-	INT	width_mm;		/* estimated obstacle width */
-	INT	clear_left_mm;
+	INT	width_mm;		/* face distance x (tan right - tan left) */
+	INT	half_left_mm;		/* sideways from the centre line to each edge
+					   (MSG_OBS.reach_mm on the chosen side) */
+	INT	half_right_mm;
+	BOOL	out_left;		/* the obstacle runs past the sweep's end */
+	BOOL	out_right;
+	INT	clear_left_mm;		/* nearest reading beyond each edge, mm */
 	INT	clear_right_mm;
-	INT	extent_left;		/* SCAN_EXTENT_xxx on each side */
-	INT	extent_right;
-	INT	reach_left_mm;		/* how far sideways the obstacle was seen on
-					   each side: reading x sin(angle) of the
-					   widest beam that still hit it, 0 = only the
-					   centre beam */
-	INT	reach_right_mm;
 } SCAN_RESULT;
 
-/* d_mm[SCAN_FAR_LEFT .. SCAN_FAR_RIGHT] are the readings (0 = no echo).
-   Returns FALSE when the centre reading is missing, or neither side has the
-   SCAN_CAR_CLEAR_MM of free space the car needs.  In the second case r is
-   still filled in, side = the less blocked one. */
-IMPORT BOOL scan_evaluate(const INT d_mm[SCAN_ANGLES], SCAN_RESULT *r);
-/* The 7-angle sweep: as scan_evaluate, plus the 70 degree readings each side
-   (0 = no echo, SCAN_NOT_MEASURED = not taken).  The side is the only one with
-   room; with room both sides, the one the obstacle reaches less far; then
-   the one whose 45 + 70 degree readings add up to more; then right. */
-IMPORT BOOL scan_evaluate_wide(const INT d_mm[SCAN_ANGLES], INT wide_l, INT wide_r,
-			       SCAN_RESULT *r);
+/* Angle of sweep step i, degrees (- left, + right) */
+#define SCAN_STEP_DEG10_OF(i)	(((i) - SCAN_STEP_CENTRE) * SCAN_STEP_DEG10)	/* 0.1 deg */
 
-/* Servo pulse width (us) for reading index SCAN_FAR_LEFT..SCAN_FAR_RIGHT */
-IMPORT INT  scan_pulse_us(INT step);
+/* mm[0 .. SCAN_STEPS-1]: the sweep, 55 left to 55 right (0 = no echo or
+   not read).  Returns FALSE when the centre
+   reading is missing, or neither side has room; r is filled in either way
+   (side = the one needing the smaller move). */
+IMPORT BOOL scan_profile(const INT mm[SCAN_STEPS], SCAN_RESULT *r);
+
+/* Correct r's width (and its half widths, in proportion) with the
+   calibration above when the obstacle is D_mm ahead, D within the
+   calibrated range.  Returns TRUE if it was corrected. */
+IMPORT BOOL scan_width_calibrated(SCAN_RESULT *r, INT D_mm);
+
+/* tan, cos and sin of 0..90 degrees (tenths), x 1000 (scan_stan_pm:
+   signed, -90..90) */
+IMPORT INT  scan_tan_pm(INT deg10);
+IMPORT INT  scan_cos_pm(INT deg10);
+IMPORT INT  scan_sin_pm(INT deg10);
+IMPORT INT  scan_stan_pm(INT deg10);
 
 /* Servo pulse width (us) for an angle in degrees, - left / + right, clamped
    to +/-SCAN_MAX_AIM_DEG; linear between the calibrated 0, 22.5, 45, 60
-   and 70 degree positions */
+   and 70 degree positions.  scan_angle10_us: the angle in tenths. */
 IMPORT INT  scan_angle_us(INT deg);
+IMPORT INT  scan_angle10_us(INT deg10);
 
 /* ---- Echo pulse capture (HC-SR04 ECHO, filled by the GPIO interrupt) -------
  * Written by the interrupt (echo_edge) and read by scan_task once the event
@@ -134,7 +159,7 @@ typedef struct {
 
 IMPORT void echo_arm(ECHO *e);
 IMPORT void echo_disarm(ECHO *e);
-/* Feed one interrupt: now_us from the 1 MHz timer, edges = ECHO_EDGE_xxx bits.
+/* Feed one interrupt: now_us = APP_NOW_US() (timer counts), edges = ECHO_EDGE_xxx bits.
    Returns TRUE when the pulse is complete (width_us is valid). */
 IMPORT BOOL echo_edge(ECHO *e, UW now_us, UW edges);
 /* Pulse width -> mm, or SCAN_NO_ECHO for 0, longer than ECHO_MAX_US, or a

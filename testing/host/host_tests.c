@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 #include "motor_control/motor_control.h"
 #include "imu_terrain/imu_terrain.h"
 #include "imu_terrain/imu_test_hump.h"
@@ -27,6 +28,57 @@ static int has(const char *s, const char *sub)
 }
 
 static MISSION_ACT bypass_last;	/* actions of the last leg bypass_legs() ran */
+
+/* Simulated HC-SR04 sweep for scan_profile(), the nearest of these echoes
+   at each 5-degree step:
+   - the box's flat front face (y = D, x from xl to xr) echoes only while
+     the beam is within face_cone of square on (diffuse = 1: a rough face
+     that echoes from its nearest point anywhere in corner_cone instead);
+   - its two corners echo while within corner_cone of the beam;
+   - rough walls along the track at x = wl (< 0) and x = wr (> 0) echo
+     from their nearest point in corner_cone (0 = no wall). */
+static void sim_sweep2(INT mm[SCAN_STEPS], int D, int xl, int xr, int wl, int wr,
+		       int face_cone, int corner_cone, int diffuse)
+{
+	const double PI = 3.14159265358979;
+	int i;
+	double t;
+
+	for (i = 0; i < SCAN_STEPS; i++) {
+		double best = 1e9, ca, cb;
+		double a0 = SCAN_STEP_DEG10_OF(i) / 10.0;
+
+		if (!diffuse && fabs(a0) <= face_cone && xl <= 0 && xr >= 0) {
+			best = D;		/* square on to the face */
+		}
+		for (t = a0 - corner_cone; t <= a0 + corner_cone; t += 1.0) {
+			double rad = t * PI / 180.0, sn = sin(rad), cs = cos(rad), d, x;
+
+			if (diffuse && cs > 1e-6) {
+				d = D / cs;
+				x = d * sn;
+				if (x >= xl && x <= xr && d < best) {
+					best = d;
+				}
+			}
+			if (wl != 0 && sn < -1e-6 && (d = wl / sn) < best) {
+				best = d;
+			}
+			if (wr != 0 && sn > 1e-6 && (d = wr / sn) < best) {
+				best = d;
+			}
+		}
+		ca = atan2((double)xl, (double)D) * 180.0 / PI;
+		cb = atan2((double)xr, (double)D) * 180.0 / PI;
+		if (fabs(ca - a0) <= corner_cone && hypot(xl, D) < best) {
+			best = hypot(xl, D);
+		}
+		if (fabs(cb - a0) <= corner_cone && hypot(xr, D) < best) {
+			best = hypot(xr, D);
+		}
+		mm[i] = (best > SCAN_MAX_RANGE_MM) ? SCAN_NO_ECHO : (INT)(best + 0.5);
+	}
+}
 
 /* Run n bypass legs: each one captures Motor's counter, then finishes.
    Puts the command Mission sent after each finished leg in out[]. */
@@ -186,6 +238,28 @@ int main(void)
 		th_calibrate(&l);
 		o = th_drive(&l, &h20, 0, 1000, -1, 0, 0, -1);
 		CHECK_T("S3-U05d", o.dones == 1 && o.lifts == 0, "a hump is never a lift");
+		/* S3-U15: picked up (2026-11-24): upward speed, not only upside down */
+		{
+			INT j;
+
+			imu_logic_init(&l);
+			th_calibrate(&l);
+			k = th_hold(&l, 0, 0, 1300, 10);
+			CHECK_T("S3-U15a", k == 0 && l.state != IMU_LIFTED, "0.3 g up for 0.1 s: not yet");
+			k = th_hold(&l, 0, 0, 1300, 15);
+			CHECK_T("S3-U15b", k == 1 && l.state == IMU_LIFTED,
+				"0.3 g up for 0.25 s (about 0.4 m/s): LIFTED");
+			th_hold(&l, 0, 0, 1000, LIFT_CLEAR_SAMPLES);
+			k = th_hold(&l, 0, 0, 4000, 2) + th_hold(&l, 0, 0, 1000, 50);
+			CHECK_T("S3-U15c", k == 0 && l.state != IMU_LIFTED, "a 3 g vertical knock (20 ms) is not a lift");
+			k = th_hold(&l, 0, 0, 1060, 300);
+			CHECK_T("S3-U15d", k == 0, "60 mg above rest for 3 s (drift, a ramp) is not a lift");
+			k = 0;
+			for (j = 0; j < 40; j++) {
+				k += th_hold(&l, 0, 0, 1400, 3) + th_hold(&l, 0, 0, 600, 3);
+			}
+			CHECK_T("S3-U15e", k == 0, "bouncing +-0.4 g at 17 Hz (a rough floor) is not a lift");
+		}
 
 		imu_fault(&l);
 		CHECK_T("S3-U06a", l.state == IMU_SENSOR_FAULT &&
@@ -256,10 +330,10 @@ int main(void)
 		MSG_TELEM t;
 		DASH_DEBUG g;
 		UB f[DASH_DEBUG_BYTES];
-		uint32_t cur = 0, v[25];
+		uint32_t cur = 0, v[20];
 		static const uint32_t tmax[12] = { 255, 15, 511, 65535, 359, 1, 255, 31, 31, 127, 1, 255 };
-		static const uint32_t gmax[25] = { 255, 1023, 1023, 1023, 2047, 3, 255, 255, 255, 31, 4095, 7, 15, 63,
-						   7, 4095, 4095, 4095, 4095, 4095, 3, 7, 4095, 15, 3 };
+		static const uint32_t gmax[20] = { 255, 1023, 1023, 1023, 2047, 3, 255, 255, 255, 31, 4095, 7, 15, 63,
+						   7, 3, 7, 1023, 1023, 3 };
 		int i, ok = 1;
 
 		memset(&t, 0, sizeof t);
@@ -282,20 +356,37 @@ int main(void)
 		g.dark_c = 600; g.dark_r = 1500; g.err = -700; g.steer = 999; g.mode = 2;
 		g.bc_edges = 300; g.bc_ok = 1; g.bc_fail = 3; g.bc_last = 'B'; g.ultra_mm = 289; g.motor_state = MOT_DRIVING;
 		g.bc_status = 6; g.bc_count = 90;
-		g.scan_state = 3; g.scan_mm[0] = 1200; g.scan_mm[1] = 900; g.scan_mm[2] = 250; g.scan_mm[3] = 700;
-		g.scan_mm[4] = 9000; g.scan_side = 2; g.bc_exit = 3;
-		g.echo_rise_us = 480; g.echo_edges = 40; g.byp_result = BYPR_NO_LINE;
+		g.scan_state = 3; g.scan_side = 2; g.bc_exit = 3;
+		g.width_mm = 1500; g.half_l_mm = 180; g.byp_result = BYPR_NO_LINE;
 		cur = 0; ok = 1;
 		CHECK_T("S4-U12a", dash_pack_debug(&g, 200, f, DASH_DEBUG_BYTES) == DASH_DEBUG_BYTES,
-			"debug frame packs into 24 bytes");
-		for (i = 0; i < 25; i++) {
+			"debug frame packs into 17 bytes");
+		for (i = 0; i < 20; i++) {
 			ok &= protocol_bits_get(f, DASH_DEBUG_BYTES, &cur, gmax[i], &v[i]);
 		}
-		CHECK_T("S4-U12b", ok && cur == 191 && v[24] == BYPR_NO_LINE && v[22] == 480 && v[23] == 15 && v[21] == 3 && v[14] == 3 && v[15] == 1200 && v[16] == 900 &&
-			v[17] == 250 && v[18] == 700 && v[19] == 4095 && v[20] == 2 && v[12] == 6 && v[13] == 63 && v[0] == 200 && v[1] == 600 && v[2] == 1023 && (int)v[3] - 512 == -512 &&
+		CHECK_T("S4-U12b", ok && cur == 135 && v[19] == BYPR_NO_LINE && v[17] == 1023 && v[18] == 180 && v[16] == 3 && v[14] == 3 &&
+			v[15] == 2 && v[12] == 6 && v[13] == 63 && v[0] == 200 && v[1] == 600 && v[2] == 1023 && (int)v[3] - 512 == -512 &&
 			(int)v[4] - 1024 == 999 && v[5] == 2 && v[6] == 300 % 256 && v[7] == 1 && v[8] == 3 &&
 			v[9] == 1 && v[10] == 289 && v[11] == MOT_DRIVING,
 			"every debug field unpacks; out-of-range values clamped");
+		{
+			DASH_IMU mi;
+			UB       fi[DASH_IMU_BYTES];
+			static const uint32_t imax[8] = { 255, 7, 1, 2047, 127, 127, 255, 8191 };
+
+			memset(&mi, 0, sizeof mi);
+			mi.state = 4; mi.calibrated = 1; mi.lean_um = 21500; mi.last_mm = 31;
+			mi.max_mm = 200; mi.humps = 259; mi.rise = -5000;
+			cur = 0; ok = 1;
+			CHECK_T("S4-U13a", dash_pack_imu(&mi, 7, fi, DASH_IMU_BYTES) == DASH_IMU_BYTES &&
+				dash_pack_imu(&mi, 7, fi, DASH_IMU_BYTES - 1) == -1, "IMU frame packs into 8 bytes");
+			for (i = 0; i < 8; i++) {
+				ok &= protocol_bits_get(fi, DASH_IMU_BYTES, &cur, imax[i], &v[i]);
+			}
+			CHECK_T("S4-U13b", ok && cur == 58 && v[0] == 7 && v[1] == 4 && v[2] == 1 &&
+				(int)v[3] - 1024 == 215 && v[4] == 31 && v[5] == 127 && v[6] == 3 && v[7] == 0,
+				"every IMU field unpacks (as car_model.mjs reads it); out-of-range values clamped");
+		}
 	}
 	{
 		UW e[4] = { 1000, 13300, 20000, 20000 + 7000000 };
@@ -338,6 +429,35 @@ int main(void)
 			dash_parse_cmd("\x01\x00", 2) == 0 && dash_parse_cmd("", 0) == 0 &&
 			dash_parse_cmd("START", 5) == 0 && dash_parse_cmd(NULL, 1) == 0,
 			"stray bits, wrong length and old text commands are ignored");
+		{
+			/* junction mapping: 5 bits per turn (U-turn, left, right,
+			   straight), 4 spare */
+			UB  lt[MQTTCMD_TURNS] = { 9, 9, 9, 9 };
+			char mf[DASH_MAP_BYTES];
+			uint32_t mc;
+
+			mc = 0; memset(mf, 0, sizeof mf);
+			protocol_bits_put((uint8_t *)mf, DASH_MAP_BYTES, &mc, 'Z' - 'A', 31);
+			protocol_bits_put((uint8_t *)mf, DASH_MAP_BYTES, &mc, 'L' - 'A', 31);
+			protocol_bits_put((uint8_t *)mf, DASH_MAP_BYTES, &mc, DASH_CHAR_NONE, 31);
+			protocol_bits_put((uint8_t *)mf, DASH_MAP_BYTES, &mc, 'S' - 'A', 31);
+			CHECK_T("S4-U15a", dash_parse_map(mf, DASH_MAP_BYTES, lt) && lt[0] == 'Z' && lt[1] == 'L' &&
+				lt[2] == 0 && lt[3] == 'S',
+				"junction mapping: U-turn Z, left L, right none, straight S");
+			mf[2] |= 0x80;
+			CHECK_T("S4-U15b", !dash_parse_map(mf, 2, lt) && !dash_parse_map(NULL, 3, lt) &&
+				!dash_parse_map(mf, DASH_MAP_BYTES, lt) && lt[0] == 'Z',
+				"wrong length, a set spare bit: refused, the letters unchanged");
+			mc = 0; memset(mf, 0, sizeof mf);
+			protocol_bits_put((uint8_t *)mf, DASH_MAP_BYTES, &mc, 3, 31);
+			protocol_bits_put((uint8_t *)mf, DASH_MAP_BYTES, &mc, 3, 31);
+			protocol_bits_put((uint8_t *)mf, DASH_MAP_BYTES, &mc, 4, 31);
+			protocol_bits_put((uint8_t *)mf, DASH_MAP_BYTES, &mc, 5, 31);
+			CHECK_T("S4-U15c", !dash_parse_map(mf, DASH_MAP_BYTES, lt), "one letter for two turns: refused");
+			mc = 0; memset(mf, 0, sizeof mf);
+			protocol_bits_put((uint8_t *)mf, DASH_MAP_BYTES, &mc, 27, 31);
+			CHECK_T("S4-U15d", !dash_parse_map(mf, DASH_MAP_BYTES, lt), "26..30 is not a letter: refused");
+		}
 
 		dash_init(&d);
 		#define STEP(w, e, tel, dt) do { in.wifi_up = (w); in.mqtt_event = (e); in.got_telem = (tel); in.dt_ms = (dt); dash_step(&d, &in, &o); } while (0)
@@ -373,7 +493,7 @@ int main(void)
 		CHECK_T("S5-U01d", m.state == SYS_INIT, "INIT waits for WiFi/MQTT");
 		mission_on_tick(&m, MS_INIT_NET, MOT_STOPPED, 0, &a);
 		CHECK_T("S5-U01e", m.state == SYS_IDLE, "INIT times out: usable offline");
-		mission_init(&m); m.net_online = 1; m.track_enabled = 0;	/* U06: the dog-leg */
+		mission_init(&m); m.net_online = 1;
 		mission_on_tick(&m, MS_INIT, MOT_STOPPED, 0, &a);
 		CHECK_T("S5-U01a", m.state == SYS_IDLE, "INIT -> IDLE once online");
 		mission_on_button(&m, &a);
@@ -427,6 +547,27 @@ int main(void)
 			mj.move_map[JMOVE_LEFT] = 'L'; mj.move_map[JMOVE_RIGHT] = 'R';
 			CHECK_T("S5-U21b", mission_junction_deg(&mj, 'L') == -90 && mission_junction_deg(&mj, 'R') == 90,
 				"left and right follow the mapping table");
+			{
+				/* S5-U22: the mapping from the PC over MQTT replaces the
+				   defaults, in any state (even INIT) */
+				MSG_MQTTCMD qm;
+				MISSION     mm;
+
+				mission_init(&mm);
+				memset(&qm, 0, sizeof qm);
+				qm.cmd = MQTTCMD_MAP; qm.letters[0] = 'B'; qm.letters[1] = 'C'; qm.letters[2] = 'D'; qm.letters[3] = 'E';
+				a = clear_act(); mission_on_mqtt(&mm, &qm, &a);
+				CHECK_T("S5-U22a", mm.state == SYS_INIT && mm.map_from_pc &&
+					mission_junction_deg(&mm, 'B') == 180 && mission_junction_deg(&mm, 'C') == -90 &&
+					mission_junction_deg(&mm, 'D') == 90 && mission_junction_deg(&mm, 'E') == 0 &&
+					mm.move_map[JMOVE_FORWARD] == 'E' && mission_junction_deg(&mm, 'Z') == 0 &&
+					a.n_nav == 0 && a.evt_flags == 0,
+					"mapping received during INIT: B U-turn, C left, D right, E straight; old Z goes forward; nothing moves");
+				qm.letters[0] = 0;
+				mission_on_mqtt(&mm, &qm, &a);
+				CHECK_T("S5-U22b", mission_junction_deg(&mm, 'B') == 0 && mission_junction_deg(&mm, 0) == 0,
+					"no letter for the U-turn: B goes forward, and no letter is still forward");
+			}
 			s.flags = 0;
 		}
 		/* S5-H12: integrated run, Mission calling Motor, Line, Barcode and IMU */
@@ -710,7 +851,7 @@ int main(void)
 		/* NFR-10: a slow bypass is recorded, never aborted (review 8.2) */
 		mission_init(&m); m.state = SYS_OBSTACLE_BYPASS; m.done_seq_base = 1; a = clear_act();
 		m.byp_phase = BYPP_ALIGN_TURN;		/* the last leg */
-		mission_on_tick(&m, BYPASS_TARGET_MS + 3000, MOT_BYPASS, 1, &a);
+		mission_on_tick(&m, BYPASS_TARGET_MS + 3000, MOT_TURNING, 1, &a);
 		CHECK_T("S5-H03a", m.state == SYS_OBSTACLE_BYPASS, "bypass over the 30 s target is not a fault");
 		mission_on_tick(&m, 5, MOT_STOPPED, 2, &a);
 		CHECK_T("S5-H03b", m.state == SYS_LINE_REACQUIRE && m.bypass_late, "slow bypass finishes, flagged late");
@@ -741,138 +882,6 @@ int main(void)
 			scan_angle_us(-65) > SCAN_US_60_LEFT && scan_angle_us(-65) < SCAN_US_SIDE_LEFT &&
 			scan_angle_us(10) < SCAN_US_CENTRE && scan_angle_us(10) > SCAN_US_NEAR_RIGHT,
 			"servo aim by angle: calibrated points exact, linear in between, clamped at 70");
-		/* S5-H23: tracking bypass: follow the obstacle at 15 cm, clear its
-		   end, curve in to the line, curve back along it */
-		{
-			MISSION     mt;
-			MSG_OBS     ot;
-			MSG_STEER   st;
-			UW          sq = 70;
-			INT         k, side, far_steer, near_steer;
-
-			memset(&ot, 0, sizeof ot); memset(&st, 0, sizeof st);
-			mission_init(&mt); mt.state = SYS_OBSTACLE_SCAN; mt.track_enabled = 1;
-			mission_on_heading(&mt, 0); mission_on_forward(&mt, 1000, &a);
-			a = clear_act(); ot.kind = OBS_RESULT; ot.side = OBS_SIDE_RIGHT; ot.dist_mm = 250;
-			mission_on_obs(&mt, &ot, &a);
-			CHECK_T("S5-H23a", mt.byp_phase == BYPP_OUT && (a.evt_flags & EVT_RESUME) &&
-				a.scan_cmd == SCANCMD_TRACK && a.scan_arg == 0 &&
-				a.nav[0].type == NAV_SPEED && a.nav[0].arg == BYP_OUT_MMPS,
-				"no fixed turn: drive off at once, sensor straight at the obstacle");
-			side = 1;
-			ot.kind = OBS_RANGE; ot.dist_mm = 280;
-			mission_on_obs(&mt, &ot, &a);
-			a = clear_act(); mission_on_steer(&mt, &st, &a);
-			far_steer = a.nav[0].arg;
-			ot.dist_mm = 150;
-			mission_on_obs(&mt, &ot, &a);
-			a = clear_act(); mission_on_steer(&mt, &st, &a);
-			near_steer = a.nav[0].arg;
-			CHECK_T("S5-H23r", far_steer >= BYP_OUT_STEER && near_steer > far_steer,
-				"curves right, away from it; harder the nearer its front");
-			mission_on_heading(&mt, 20);
-			a = clear_act(); mission_on_tick(&mt, 5, MOT_DRIVING, sq, &a);
-			CHECK_T("S5-H23s", a.scan_cmd == SCANCMD_TRACK && a.scan_arg == -20,
-				"turned 20 deg right: sensor turns 20 deg left to keep looking at its front");
-			mission_on_heading(&mt, BYP_OUT_MAX_DEG + 5);
-			a = clear_act(); mission_on_steer(&mt, &st, &a);
-			CHECK_T("S5-H23t", a.nav[0].arg < 0, "never turned out further than BYP_OUT_MAX_DEG");
-			mission_on_heading(&mt, 30);
-			ot.dist_mm = 0;
-			mission_on_obs(&mt, &ot, &a); mission_on_obs(&mt, &ot, &a); mission_on_obs(&mt, &ot, &a);
-			CHECK_T("S5-H23u", mt.byp_phase == BYPP_OUT_CLEAR, "beam misses it 3 times: sensor past its edge");
-			mission_on_forward(&mt, mt.fwd_mm + 200, &a);	/* 200 mm at 30 deg: 100 mm out */
-			a = clear_act(); mission_on_tick(&mt, 5, MOT_DRIVING, sq, &a);
-			CHECK_T("S5-H23v", mt.byp_phase == BYPP_OUT_CLEAR, "not yet a car half-width + margin beyond it");
-			mission_on_forward(&mt, mt.fwd_mm + 200, &a);	/* 200 mm out: > 165 */
-			a = clear_act(); mission_on_tick(&mt, 5, MOT_DRIVING, sq, &a);
-			CHECK_T("S5-H23w", mt.byp_phase == BYPP_FOLLOW && a.scan_cmd == SCANCMD_TRACK && a.scan_arg == -BYP_FOLLOW_SIDE_DEG &&
-				a.nav[0].type == NAV_SPEED && a.nav[0].arg == BYP_MMPS,
-				"room for the body (+ left sensor): follow its side, sensor 70 deg left");
-			mission_on_heading(&mt, 0);		/* straightened up beside it */
-			ot.kind = OBS_RANGE; ot.dist_mm = 350;	/* ~329 mm sideways: too far */
-			a = clear_act(); mission_on_obs(&mt, &ot, &a);
-			a = clear_act(); mission_on_steer(&mt, &st, &a);
-			far_steer = a.nav[0].arg;
-			ot.dist_mm = 120;			/* ~113 mm: too near */
-			mission_on_obs(&mt, &ot, &a);
-			a = clear_act(); mission_on_steer(&mt, &st, &a);
-			near_steer = a.nav[0].arg;
-			CHECK_T("S5-H23b", a.nav[0].type == NAV_STEER && far_steer < 0 && near_steer > 0,
-				"too far: steer left in towards it; too near: steer right away");
-			ot.dist_mm = 60;			/* 56 mm: dangerously close */
-			mission_on_obs(&mt, &ot, &a);
-			a = clear_act(); mission_on_steer(&mt, &st, &a);
-			CHECK_T("S5-H23c", a.nav[0].arg == BYP_STEER_MAX * side, "under 70 mm sideways: full steer away");
-			mission_on_heading(&mt, 10);		/* drifted 10 deg right (away) */
-			ot.dist_mm = 173;			/* x sin 60 = 150 mm: on the gap */
-			mission_on_obs(&mt, &ot, &a); mission_on_obs(&mt, &ot, &a);
-			a = clear_act(); mission_on_steer(&mt, &st, &a);
-			CHECK_T("S5-H23d", a.nav[0].arg < 0, "on the gap but angled away: steer back parallel");
-			mission_on_heading(&mt, 0);
-			ot.dist_mm = 0;
-			mission_on_obs(&mt, &ot, &a); mission_on_obs(&mt, &ot, &a);
-			CHECK_T("S5-H23e", mt.byp_phase == BYPP_FOLLOW, "two missed pings: still following");
-			a = clear_act(); mission_on_obs(&mt, &ot, &a);
-			CHECK_T("S5-H23f", mt.byp_phase == BYPP_CLEAR && a.scan_cmd == SCANCMD_DISARM,
-				"third: the sensor has passed its end, sensor back to centre");
-			mission_on_forward(&mt, mt.byp_mark_mm + BYP_CLEAR_MM, &a);
-			a = clear_act(); mission_on_tick(&mt, 5, MOT_DRIVING, sq, &a);
-			CHECK_T("S5-H23g", mt.byp_phase == BYPP_RETURN, "then BYP_CLEAR_MM on: curve in to the line");
-			a = clear_act(); mission_on_steer(&mt, &st, &a);
-			CHECK_T("S5-H23h", a.nav[0].arg < 0 && a.nav[0].arg >= -BYP_RETURN_STEER,
-				"right pass returns by curving left, gently");
-			mission_on_heading(&mt, -BYP_RETURN_DEG);
-			a = clear_act(); mission_on_steer(&mt, &st, &a);
-			CHECK_T("S5-H23i", a.nav[0].arg == 0, "at 30 deg in: hold that heading");
-			st.flags = STEER_F_DARK_C; mission_on_steer(&mt, &st, &a);
-			CHECK_T("S5-H23j", mt.byp_phase == BYPP_RETURN, "first sensor on the line: keep going");
-			st.flags = STEER_F_DARK_R; a = clear_act(); mission_on_steer(&mt, &st, &a);
-			CHECK_T("S5-H23k", mt.byp_phase == BYPP_REJOIN && !(a.evt_flags & EVT_STOP) && a.nav[0].arg > 0,
-				"second sensor: curve back right while moving, no stop");
-			st.flags = 0;
-			for (k = -BYP_RETURN_DEG; k < -BYP_ALIGN_DEG; k += 5) {
-				mission_on_heading(&mt, k);
-				a = clear_act(); mission_on_tick(&mt, 5, MOT_DRIVING, sq, &a);
-			}
-			CHECK_T("S5-H23l", mt.state == SYS_OBSTACLE_BYPASS, "still turning back");
-			mission_on_heading(&mt, -3);
-			a = clear_act(); mission_on_tick(&mt, 5, MOT_DRIVING, sq, &a);
-			CHECK_T("S5-H23m", mt.state == SYS_LINE_FOLLOW && mt.line_hint == OBS_SIDE_RIGHT &&
-				a.scan_cmd == SCANCMD_ARM && a.nav[0].type == NAV_RESUME,
-				"along the line: follow it, told the line is to the right if it is lost");
-			mission_on_tick(&mt, BYP_HINT_MS, MOT_DRIVING, sq, &a);
-			CHECK_T("S5-H23n", mt.line_hint == 0, "hint dropped once the follower has had it");
-			/* left pass, and an obstacle whose end never comes: stop */
-			mission_init(&mt); mt.state = SYS_OBSTACLE_SCAN; mt.track_enabled = 1; sq = 90;
-			mission_on_forward(&mt, 0, &a); mission_on_heading(&mt, 0);
-			ot.kind = OBS_RESULT; ot.side = OBS_SIDE_LEFT; ot.dist_mm = 250;
-			a = clear_act(); mission_on_obs(&mt, &ot, &a);
-			ot.kind = OBS_RANGE; ot.dist_mm = 250; mission_on_obs(&mt, &ot, &a);
-			a = clear_act(); mission_on_steer(&mt, &st, &a);
-			k = a.nav[0].arg;
-			mission_on_heading(&mt, -20);
-			a = clear_act(); mission_on_tick(&mt, 5, MOT_DRIVING, sq, &a);
-			CHECK_T("S5-H23o", k < 0 && a.scan_arg == 20,
-				"left pass: curves left, sensor turns right to keep looking at its front");
-			ot.dist_mm = 0;
-			mission_on_obs(&mt, &ot, &a); mission_on_obs(&mt, &ot, &a); mission_on_obs(&mt, &ot, &a);
-			mission_on_heading(&mt, -30);
-			mission_on_forward(&mt, 400, &a);
-			a = clear_act(); mission_on_tick(&mt, 5, MOT_DRIVING, sq, &a);
-			CHECK_T("S5-H23x", mt.byp_phase == BYPP_FOLLOW && a.scan_arg == BYP_FOLLOW_SIDE_DEG,
-				"left pass needs less room (no sensor on that side): following, sensor right");
-			mission_on_heading(&mt, 0);
-			ot.kind = OBS_RANGE; ot.dist_mm = 212; mission_on_obs(&mt, &ot, &a);
-			mission_on_forward(&mt, mt.byp_mark_mm + BYP_FOLLOW_MAX_MM + 1, &a);
-			a = clear_act(); mission_on_tick(&mt, 5, MOT_DRIVING, sq, &a);
-			CHECK_T("S5-H23p", mt.state == SYS_FAULT_RECOVERY && (a.evt_flags & EVT_STOP),
-				"still beside it after 1.5 m: stop (fault)");
-			/* the floor test with no line keeps the dog-leg */
-			mission_init(&mt); mt.state = SYS_OBSTACLE_SCAN; mt.straight_only = 1; mt.track_enabled = 1;
-			ot.kind = OBS_RESULT; a = clear_act(); mission_on_obs(&mt, &ot, &a);
-			CHECK_T("S5-H23q", !mt.byp_track, "no line to come back to: fixed dog-leg");
-		}
 		/* S5-H25: straight leg of the dog-leg ended by the obstacle itself */
 		{
 			MISSION     mp;
@@ -882,7 +891,7 @@ int main(void)
 			INT         i;
 
 			memset(&op, 0, sizeof op);
-			mission_init(&mp); mp.state = SYS_OBSTACLE_SCAN; mp.track_enabled = 0;
+			mission_init(&mp); mp.state = SYS_OBSTACLE_SCAN;
 			mission_on_forward(&mp, 0, &a);
 			op.kind = OBS_RESULT; op.side = OBS_SIDE_RIGHT; op.dist_mm = 250;
 			a = clear_act(); mission_on_obs(&mp, &op, &a);
@@ -897,10 +906,16 @@ int main(void)
 			a = clear_act(); mission_on_tick(&mp, 5, MOT_TURNING, sq, &a);
 			CHECK_T("S5-H25b", mp.byp_phase == BYPP_PASS && !(a.evt_flags & EVT_STOP),
 				"obstacle still beside the car: keep going");
-			op.dist_mm = 0;
-			mission_on_obs(&mp, &op, &a); mission_on_obs(&mp, &op, &a);
-			op.dist_mm = 900; mission_on_obs(&mp, &op, &a);
-			CHECK_T("S5-H25c", mp.byp_end_fwd == mp.fwd_mm, "3 readings with nothing there: its far end");
+			op.dist_mm = 900;
+			for (i = 0; i < 10; i++) { mission_on_obs(&mp, &op, &a); }
+			a = clear_act(); mission_on_tick(&mp, BYP_LOST_MS - 100, MOT_TURNING, sq, &a);
+			CHECK_T("S5-H25i", mp.byp_end_fwd < 0, "nothing within 35 cm for under 3 s: not its end yet");
+			op.dist_mm = 200; mission_on_obs(&mp, &op, &a);	/* near again: count again */
+			op.dist_mm = 0; mission_on_obs(&mp, &op, &a);
+			a = clear_act(); mission_on_tick(&mp, BYP_LOST_MS - 100, MOT_TURNING, sq, &a);
+			CHECK_T("S5-H25j", mp.byp_end_fwd < 0, "a near reading restarts the 3 s");
+			a = clear_act(); mission_on_tick(&mp, 100, MOT_TURNING, sq, &a);
+			CHECK_T("S5-H25c", mp.byp_end_fwd == mp.fwd_mm, "3 s with nothing within 35 cm: its far end");
 			mission_on_forward(&mp, mp.fwd_mm + BYP_PASS_AFTER_MM - 1, &a);
 			a = clear_act(); mission_on_tick(&mp, 5, MOT_TURNING, sq, &a);
 			CHECK_T("S5-H25d", mp.byp_phase == BYPP_PASS, "not yet a car length past it");
@@ -912,7 +927,7 @@ int main(void)
 			CHECK_T("S5-H25f", mp.byp_phase == BYPP_IN_TURN && a.n_nav == 1 && a.nav[0].type == NAV_TURN &&
 				a.nav[0].arg == -BYP_TURN_CMD_DEG, "stopped: turn in towards the line");
 			/* never seen beside the car: the planned length */
-			mission_init(&mp); mp.state = SYS_OBSTACLE_SCAN; mp.track_enabled = 0;
+			mission_init(&mp); mp.state = SYS_OBSTACLE_SCAN;
 			mission_on_forward(&mp, 0, &a);
 			op.kind = OBS_RESULT; a = clear_act(); mission_on_obs(&mp, &op, &a);
 			bypass_legs(&mp, &sq, 3, lp, 8);
@@ -921,93 +936,50 @@ int main(void)
 			a = clear_act(); mission_on_tick(&mp, 5, MOT_TURNING, sq, &a);
 			CHECK_T("S5-H25g", mp.byp_phase == BYPP_PASS_STOPPING, "side never seen: stops at the planned length");
 			/* an end found very early still drives the minimum */
-			mission_init(&mp); mp.state = SYS_OBSTACLE_SCAN; mp.track_enabled = 0;
+			mission_init(&mp); mp.state = SYS_OBSTACLE_SCAN;
 			mission_on_forward(&mp, 0, &a);
 			op.kind = OBS_RESULT; a = clear_act(); mission_on_obs(&mp, &op, &a);
 			bypass_legs(&mp, &sq, 3, lp, 8);
 			mission_on_tick(&mp, 5, MOT_TURNING, sq, &a);
 			op.kind = OBS_RANGE; op.dist_mm = 150; mission_on_obs(&mp, &op, &a);
-			op.dist_mm = 0;
-			for (i = 0; i < 3; i++) { mission_on_obs(&mp, &op, &a); }
+			mission_on_tick(&mp, BYP_LOST_MS, MOT_TURNING, sq, &a);	/* its end at once */
 			mission_on_forward(&mp, mp.byp_mark_mm + BYP_PASS_MIN_MM - 1, &a);
 			a = clear_act(); mission_on_tick(&mp, 5, MOT_TURNING, sq, &a);
 			CHECK_T("S5-H25h", mp.byp_phase == BYPP_PASS, "never shorter than BYP_PASS_MIN_MM");
 		}
-		/* S5-H26: sideways position adds up at real speed (45 mm/s, 5 ms
-		   ticks: under 1 mm per tick; it used to round to nothing) */
+		/* S5-H30: first "no way round": creep 10 cm closer, then sweep again */
 		{
-			MISSION ml;
-			MSG_OBS ol;
-			INT     t;
+			MISSION mc;
+			MSG_OBS oc;
+			UW      sq = 40;
 
-			memset(&ol, 0, sizeof ol);
-			mission_init(&ml); ml.state = SYS_OBSTACLE_SCAN; ml.track_enabled = 1;
-			mission_on_forward(&ml, 0, &a); mission_on_heading(&ml, 0);
-			ol.kind = OBS_RESULT; ol.side = OBS_SIDE_RIGHT; ol.dist_mm = 250;
-			a = clear_act(); mission_on_obs(&ml, &ol, &a);
-			mission_on_heading(&ml, 30);
-			for (t = 1; t <= 1600; t++) {		/* 360 mm at 0.225 mm per tick */
-				mission_on_forward(&ml, (t * 225) / 1000, &a);
-				a = clear_act(); mission_on_tick(&ml, 5, MOT_DRIVING, 0, &a);
-			}
-			CHECK_T("S5-H26", ml.byp_lat_mm >= 170 && ml.byp_lat_mm <= 185,
-				"360 mm at 30 deg in sub-mm steps: about 180 mm sideways (was 0)");
-		}
-		/* S5-H27: 7-angle sweep, 70 degree readings decide the side */
-		{
-			SCAN_RESULT sw;
-			INT         d4[SCAN_ANGLES] = { 285, 278, 270, 285, 621 };	/* floor run 4 */
-			INT         dc[SCAN_ANGLES] = { 290, 280, 270, 280, 300 };	/* square-on, both 45s hit */
-
-			memset(&sw, 0, sizeof sw);
-			CHECK_T("S5-H27a", scan_evaluate_wide(d4, 1500, 700, &sw) && sw.side == OBS_SIDE_RIGHT,
-				"left 45 hits, right only 22.5: the side it reaches less far, even with left 70 open");
-			CHECK_T("S5-H27b", scan_evaluate_wide(dc, 1500, 300, &sw) && sw.side == OBS_SIDE_LEFT &&
-				sw.clear_left_mm >= SCAN_CAR_CLEAR_MM && sw.clear_right_mm == 0,
-				"both 45s hit: the open 70 degree side gives room (was no way round)");
-			CHECK_T("S5-H27c", !scan_evaluate_wide(dc, 500, 300, &sw) && sw.side == OBS_SIDE_LEFT,
-				"both 70s hit too: no way round, less blocked side left");
-			{
-				INT dd[SCAN_ANGLES] = { 900, 400, 270, 400, 650 };
-
-				CHECK_T("S5-H27d", scan_evaluate_wide(dd, 1800, 700, &sw) && sw.side == OBS_SIDE_LEFT,
-					"both open: the side whose 45 + 70 readings add up to more");
-				CHECK_T("S5-H27e", scan_evaluate_wide(dd, 0, 0, &sw) && sw.side == OBS_SIDE_LEFT,
-					"no echo at 70 counts as far");
-			}
-		}
-		/* S5-H28: never seen alongside: curve in once odometry says the car is
-		   past; curve back where odometry puts the line if the IR misses it */
-		{
-			MISSION mr;
-			MSG_OBS orr;
-			INT     f, x_at = -1;
-
-			memset(&orr, 0, sizeof orr);
-			mission_init(&mr); mr.state = SYS_OBSTACLE_SCAN; mr.track_enabled = 1;
-			mission_on_forward(&mr, 0, &a); mission_on_heading(&mr, 0);
-			orr.kind = OBS_RESULT; orr.side = OBS_SIDE_RIGHT; orr.dist_mm = 250;
-			a = clear_act(); mission_on_obs(&mr, &orr, &a);
-			mr.byp_phase = BYPP_FOLLOW; mr.byp_mark_mm = 0; mr.byp_seen = 0;
-			for (f = 2; f <= 700 && x_at < 0; f += 2) {
-				mission_on_forward(&mr, f, &a);
-				a = clear_act(); mission_on_tick(&mr, 5, MOT_DRIVING, 0, &a);
-				if (mr.byp_phase == BYPP_RETURN) {
-					x_at = mr.byp_x_mm;
-				}
-			}
-			CHECK_T("S5-H28a", x_at >= 250 + BYP_OBS_DEPTH_MM + BYP_CAR_LEN_MM && x_at <= 570 &&
-				a.scan_cmd == SCANCMD_DISARM,
-				"not seen: RETURN as soon as the car is past its far end (550 mm), no extra 600 mm");
-			mr.byp_lat_mm = 100;
-			mission_on_heading(&mr, -BYP_RETURN_DEG);
-			for (f = mr.fwd_mm + 2; f <= mr.fwd_mm + 300 && mr.byp_phase == BYPP_RETURN; f += 2) {
-				mission_on_forward(&mr, f, &a);
-				a = clear_act(); mission_on_tick(&mr, 5, MOT_DRIVING, 0, &a);
-			}
-			CHECK_T("S5-H28b", mr.byp_phase == BYPP_REJOIN && mr.byp_result == BYPR_ODOM &&
-				mr.byp_lat_mm <= 0 && mr.fwd_mm - mr.byp_mark_mm < 10,
-				"100 mm out at 45 deg: curves back after ~140 mm even with no black seen");
+			memset(&oc, 0, sizeof oc);
+			mission_init(&mc); mc.state = SYS_LINE_FOLLOW;
+			a = clear_act(); oc.kind = OBS_DETECTED; oc.dist_mm = 290; mission_on_obs(&mc, &oc, &a);
+			a = clear_act(); mission_on_tick(&mc, 5, MOT_STOPPED, sq, &a);	/* first sweep ordered */
+			a = clear_act(); oc.kind = OBS_FAIL; oc.side = OBS_SIDE_RIGHT; oc.dist_mm = 300;
+			mission_on_obs(&mc, &oc, &a);
+			CHECK_T("S5-H30a", mc.state == SYS_OBSTACLE_SCAN && mc.obs_advancing && a.scan_cmd == 0 &&
+				a.n_nav == 1 && a.nav[0].type == NAV_MOVE && a.nav[0].arg == OBS_ADVANCE_MM &&
+				a.nav[0].arg2 == OBS_ADVANCE_MMPS, "first no-way-round at 30 cm: creep 10 cm closer, no sweep yet");
+			a = clear_act(); oc.kind = OBS_RESULT; mission_on_obs(&mc, &oc, &a);
+			CHECK_T("S5-H30b", mc.state == SYS_OBSTACLE_SCAN && a.n_nav == 0, "a late result while creeping is ignored");
+			a = clear_act(); mission_on_tick(&mc, 5, MOT_TURNING, sq, &a);	/* move running */
+			CHECK_T("S5-H30c", a.scan_cmd == 0, "still creeping: no sweep");
+			a = clear_act(); mission_on_tick(&mc, 5, MOT_STOPPED, sq + 1, &a);
+			CHECK_T("S5-H30d", !mc.obs_advancing && a.scan_cmd == SCANCMD_PROFILE, "move done: sweep again");
+			a = clear_act(); oc.kind = OBS_FAIL; oc.dist_mm = 200; mission_on_obs(&mc, &oc, &a);
+			CHECK_T("S5-H30e", a.scan_cmd == SCANCMD_PROFILE && a.n_nav == 0 && mc.obs_sweeps == 2,
+				"second no-way-round: sweep again where it is (once per obstacle)");
+			a = clear_act(); mission_on_obs(&mc, &oc, &a);
+			CHECK_T("S5-H30f", mc.state == SYS_OBSTACLE_BYPASS && mc.byp_forced, "third: go round anyway, as before");
+			/* a move that never ends is a fault */
+			mission_init(&mc); mc.state = SYS_LINE_FOLLOW;
+			a = clear_act(); oc.kind = OBS_DETECTED; mission_on_obs(&mc, &oc, &a);
+			a = clear_act(); oc.kind = OBS_FAIL; oc.dist_mm = 300; mission_on_obs(&mc, &oc, &a);
+			mission_on_tick(&mc, 5, MOT_TURNING, sq, &a);
+			a = clear_act(); mission_on_tick(&mc, MS_OBS_ADVANCE, MOT_TURNING, sq, &a);
+			CHECK_T("S5-H30g", mc.state == SYS_FAULT_RECOVERY && (a.evt_flags & EVT_STOP), "creep never finishes: stop (fault)");
 		}
 		/* S5-H21: "no way round" three times: go round anyway */
 		{
@@ -1018,15 +990,16 @@ int main(void)
 			memset(&of, 0, sizeof of);
 			mission_init(&mf); mf.state = SYS_LINE_FOLLOW;
 			a = clear_act(); of.kind = OBS_DETECTED; of.dist_mm = 280; mission_on_obs(&mf, &of, &a);
-			of.kind = OBS_FAIL; of.side = OBS_SIDE_LEFT; of.width_mm = 500; of.dist_mm = 260;
+			/* 240 mm: too close to creep closer first (S5-H30) */
+			of.kind = OBS_FAIL; of.side = OBS_SIDE_LEFT; of.width_mm = 500; of.dist_mm = 240;
 			a = clear_act(); mission_on_obs(&mf, &of, &a);
 			a = clear_act(); mission_on_obs(&mf, &of, &a);
 			CHECK_T("S5-H21a", mf.state == SYS_OBSTACLE_SCAN && a.scan_cmd == SCANCMD_PROFILE &&
 				a.n_nav == 0 && !mf.byp_forced, "two no-way-round sweeps: still sweeping");
 			a = clear_act(); mission_on_obs(&mf, &of, &a);
-			mission_bypass_plan(OBS_SIDE_LEFT, 2 * BYP_HALF_MAX_MM, 260, TRUE, &pw);
+			mission_bypass_plan(OBS_SIDE_LEFT, 2 * BYP_HALF_MAX_MM, 240, TRUE, &pw);
 			CHECK_T("S5-H21b", mf.state == SYS_OBSTACLE_BYPASS && mf.byp_forced &&
-				mf.byp.turn_deg < 0 && mf.byp.diag_mm == pw.diag_mm && mf.obs_dist_mm == 260,
+				mf.byp.turn_deg < 0 && mf.byp.diag_mm == pw.diag_mm && mf.obs_dist_mm == 240,
 				"third: bypass anyway on the less blocked side (left), widest clearance");
 			mission_init(&mf); mf.state = SYS_LINE_FOLLOW;
 			a = clear_act(); of.kind = OBS_DETECTED; mission_on_obs(&mf, &of, &a);
@@ -1046,15 +1019,6 @@ int main(void)
 			of.kind = OBS_FAIL; a = clear_act(); mission_on_obs(&mf, &of, &a);
 			CHECK_T("S5-H21e", mf.state == SYS_OBSTACLE_SCAN && a.scan_cmd == SCANCMD_PROFILE,
 				"a new obstacle starts counting from zero");
-		}
-		{
-			/* the sweep names the less blocked side even with no room */
-			INT dd[SCAN_ANGLES] = { 300, 260, 250, 270, 420 };
-			SCAN_RESULT sr;
-
-			memset(&sr, 0, sizeof sr);
-			CHECK_T("S5-H21f", !scan_evaluate(dd, &sr) && sr.side == OBS_SIDE_RIGHT,
-				"no way round, but right is less blocked: side = right");
 		}
 		/* S5-H19: dashboard Start / Stop act like the GP20 button */
 		{
@@ -1120,7 +1084,7 @@ int main(void)
 
 			memset(&oe, 0, sizeof oe);
 			for (x = 0; x < 4; x++) {
-				mission_init(&me); me.state = SYS_OBSTACLE_SCAN; me.track_enabled = 0;
+				mission_init(&me); me.state = SYS_OBSTACLE_SCAN;
 				oe.kind = OBS_RESULT; oe.side = OBS_SIDE_LEFT; oe.dist_mm = 250;
 				oe.reach_mm = reach[x];
 				a = clear_act(); mission_on_obs(&me, &oe, &a);
@@ -1132,19 +1096,6 @@ int main(void)
 				dg[3] == pmax.diag_mm && dg[2] - dg[1] >= 60 && dg[2] - dg[1] <= 80,
 				"diagonal grows with the measured reach (50 mm more reach: ~71 mm more diagonal), within limits");
 		}
-		{
-			INT dn[SCAN_ANGLES] = { 2000, 2000, 250, 2000, 2000 };	/* narrow */
-			INT dw[SCAN_ANGLES] = { 1000, 265, 250, 270, 354 };	/* right: far beam hits */
-			SCAN_RESULT se;
-
-			memset(&se, 0, sizeof se);
-			CHECK_T("S5-H22b", scan_evaluate(dn, &se) && se.extent_left == SCAN_EXTENT_CENTRE &&
-				se.extent_right == SCAN_EXTENT_CENTRE, "only the centre beam hit: extent centre");
-			(void)scan_evaluate(dw, &se);
-			CHECK_T("S5-H22c", se.extent_left == SCAN_EXTENT_NEAR && se.extent_right == SCAN_EXTENT_FAR &&
-				se.reach_left_mm == (265 * 383) / 1000 && se.reach_right_mm == (354 * 707) / 1000,
-				"22.5 deg beam hit on the left, 45 deg too on the right");
-		}
 		/* S5-H17: sweep until a side is clear, dog-leg, stop on the line */
 		{
 			MISSION   mo;
@@ -1155,19 +1106,19 @@ int main(void)
 			int       n;
 			BYPASS_PLAN p;
 
-			mission_init(&mo); mo.track_enabled = 0; mo.state = SYS_LINE_FOLLOW;
+			mission_init(&mo); mo.state = SYS_LINE_FOLLOW;
 			memset(&oo, 0, sizeof oo); memset(&so, 0, sizeof so);
 			a = clear_act(); oo.kind = OBS_DETECTED; oo.dist_mm = 290; mission_on_obs(&mo, &oo, &a);
 			a = clear_act(); mission_on_tick(&mo, 5, MOT_STOPPED, sq, &a);
 			mission_on_tick(&mo, MS_OBSTACLE_SCAN - 100, MOT_STOPPED, sq, &a);
-			a = clear_act(); oo.kind = OBS_FAIL; mission_on_obs(&mo, &oo, &a);
+			a = clear_act(); oo.kind = OBS_FAIL; oo.dist_mm = 240; mission_on_obs(&mo, &oo, &a);
 			CHECK_T("S5-H17a", mo.state == SYS_OBSTACLE_SCAN && a.scan_cmd == SCANCMD_PROFILE &&
 				!(a.evt_flags & EVT_RESUME) && mo.obs_sweeps == 1,
 				"no way round: stays stopped and sweeps again");
 			a = clear_act(); mission_on_tick(&mo, MS_OBSTACLE_SCAN - 100, MOT_STOPPED, sq, &a);
 			CHECK_T("S5-H17b", mo.state == SYS_OBSTACLE_SCAN, "the scan timeout restarts with each sweep");
 			a = clear_act(); oo.kind = OBS_RESULT; oo.side = OBS_SIDE_RIGHT; oo.width_mm = 100;
-			oo.dist_mm = 250; mission_on_obs(&mo, &oo, &a);	/* extent 0: narrow */
+			oo.dist_mm = 250; mission_on_obs(&mo, &oo, &a);	/* reach 0: the narrowest plan */
 			mission_bypass_plan(OBS_SIDE_RIGHT, 2 * BYP_HALF_MIN_MM, 250, TRUE, &p);
 			CHECK_T("S5-H17c", mo.state == SYS_OBSTACLE_BYPASS && a.n_nav == 1 && a.nav[0].type == NAV_TURN &&
 				a.nav[0].arg == BYP_TURN_CMD_DEG && mo.obs_dist_mm == 250,
@@ -1208,7 +1159,7 @@ int main(void)
 			MSG_NAV   legs[8];
 			UW        sq = 50;
 
-			mission_init(&mo); mo.track_enabled = 0; mo.state = SYS_OBSTACLE_SCAN;
+			mission_init(&mo); mo.state = SYS_OBSTACLE_SCAN;
 			memset(&oo, 0, sizeof oo); memset(&so, 0, sizeof so);
 			a = clear_act(); oo.kind = OBS_RESULT; oo.side = OBS_SIDE_LEFT; oo.width_mm = 80;
 			mission_on_obs(&mo, &oo, &a);
@@ -1223,7 +1174,7 @@ int main(void)
 				legs[2].arg == -BYP_TURN_CMD_DEG,
 				"return diagonal ran its full length without the line: turn back (left side) anyway");
 			/* passed on the left: the right sensor is the near one */
-			mission_init(&mo); mo.track_enabled = 0; mo.state = SYS_OBSTACLE_SCAN;
+			mission_init(&mo); mo.state = SYS_OBSTACLE_SCAN;
 			a = clear_act(); oo.kind = OBS_RESULT; oo.side = OBS_SIDE_LEFT; oo.width_mm = 80;
 			mission_on_obs(&mo, &oo, &a);
 			bypass_legs(&mo, &sq, 5, legs, 8);	/* now on the return diagonal */
@@ -1243,7 +1194,7 @@ int main(void)
 			/* whichever sensor meets the line first is ignored; the same
 			   one again does not count (2026-11-18: the right pass turned
 			   on the centre sensor) */
-			mission_init(&mo); mo.track_enabled = 0; mo.state = SYS_OBSTACLE_SCAN;
+			mission_init(&mo); mo.state = SYS_OBSTACLE_SCAN;
 			a = clear_act(); oo.kind = OBS_RESULT; oo.side = OBS_SIDE_RIGHT; oo.width_mm = 80;
 			mission_on_obs(&mo, &oo, &a);
 			bypass_legs(&mo, &sq, 5, legs, 8);
@@ -1255,7 +1206,7 @@ int main(void)
 			so.flags = STEER_F_DARK_C; a = clear_act(); mission_on_steer(&mo, &so, &a);
 			CHECK_T("S5-H18i", (a.evt_flags & EVT_STOP) && mo.byp_phase == BYPP_STOPPING,
 				"right pass, right sensor first: stops on the centre one (order, not side)");
-			mission_init(&mo); mo.track_enabled = 0; mo.state = SYS_LINE_FOLLOW;
+			mission_init(&mo); mo.state = SYS_LINE_FOLLOW;
 			a = clear_act(); oo.kind = OBS_DETECTED; oo.dist_mm = 200; mission_on_obs(&mo, &oo, &a);
 			a = clear_act(); oo.kind = OBS_CLEAR; mission_on_obs(&mo, &oo, &a);
 			CHECK_T("S5-H18c", mo.state == SYS_LINE_FOLLOW && (a.evt_flags & EVT_RESUME) &&
@@ -1266,40 +1217,82 @@ int main(void)
 		mission_on_tick(&m, MS_OBSTACLE_SCAN, MOT_DRIVING, 0, &a);
 		CHECK_T("S5-H01", m.state == SYS_FAULT_RECOVERY, "OBSTACLE_SCAN times out");
 
+		CHECK_T("S5-H11", SCAN_US_SIDE_LEFT > SCAN_US_60_LEFT && SCAN_US_60_LEFT > SCAN_US_FAR_LEFT &&
+			SCAN_US_FAR_LEFT > SCAN_US_NEAR_LEFT && SCAN_US_NEAR_LEFT > SCAN_US_CENTRE &&
+			SCAN_US_CENTRE > SCAN_US_NEAR_RIGHT && SCAN_US_NEAR_RIGHT > SCAN_US_FAR_RIGHT &&
+			SCAN_US_FAR_RIGHT > SCAN_US_60_RIGHT && SCAN_US_60_RIGHT > SCAN_US_SIDE_RIGHT &&
+			scan_angle_us(90) == SCAN_US_SIDE_RIGHT,
+			"calibrated servo pulse widths run in order, left is the larger pulse, clamped at 70 deg");
+
+		/* S5-H31: the obstacle profile (the LordPercivalXII group's
+		   calculation) on a +-55 deg sweep, against a simulated sensor with
+		   the narrow beam it assumes (nearest echo within 7.5 deg) */
 		{
-			/* far left, near left, centre, near right, far right (45 / 22.5 deg) */
-			INT d[SCAN_ANGLES] = { 1200, 900, 250, 700, 800 };
+			INT  mm[SCAN_STEPS];
+			int  D, w, off, worst = 0, bad_side = 0, n = 0, err;
+			BOOL okp;
 
-			CHECK_T("S5-U10a", scan_evaluate(d, &r) && r.width_mm < 300, "narrow obstacle profiled");
-			CHECK_T("S5-U10b", r.clear_left_mm > r.clear_right_mm ? r.side == OBS_SIDE_LEFT : r.side == OBS_SIDE_RIGHT,
-				"side with more room chosen");
-			d[0] = 354; d[1] = 271; d[2] = 250; d[3] = 271; d[4] = 354;	/* flat wall */
-			CHECK_T("S5-U10c", !scan_evaluate(d, &r), "wall wider than sweep -> fault");
-			d[2] = 0;
-			CHECK_T("S5-U10d", !scan_evaluate(d, &r), "no centre echo -> fault");
-			{
-				/* box 250 mm ahead reaching past the far left beam (360 <= 354 + tol) */
-				INT w[SCAN_ANGLES] = { 360, 280, 250, 1500, 1500 };
-
-				CHECK_T("S5-H02", scan_evaluate(w, &r) && r.side == OBS_SIDE_RIGHT && r.clear_left_mm == 0,
-					"box extends left -> go right");
-				CHECK_T("S5-H11", scan_pulse_us(SCAN_FAR_LEFT) == SCAN_US_FAR_LEFT &&
-					scan_pulse_us(SCAN_NEAR_LEFT) == SCAN_US_NEAR_LEFT &&
-					scan_pulse_us(SCAN_CENTRE) == SCAN_US_CENTRE &&
-					scan_pulse_us(SCAN_NEAR_RIGHT) == SCAN_US_NEAR_RIGHT &&
-					scan_pulse_us(SCAN_FAR_RIGHT) == SCAN_US_FAR_RIGHT &&
-					SCAN_US_FAR_LEFT > SCAN_US_NEAR_LEFT && SCAN_US_NEAR_LEFT > SCAN_US_CENTRE &&
-					SCAN_US_CENTRE > SCAN_US_NEAR_RIGHT && SCAN_US_NEAR_RIGHT > SCAN_US_FAR_RIGHT,
-					"5 servo positions use their pulse widths, in order, centre 1660 us");
-				/* the edge between the near and far beams: half width between the two */
-				{
-					INT e[SCAN_ANGLES] = { 1200, 290, 250, 1200, 1200 };
-
-					CHECK_T("S5-H14", scan_evaluate(e, &r) && r.side == OBS_SIDE_RIGHT &&
-						r.clear_left_mm < r.clear_right_mm && r.width_mm > 51 * 2,
-						"near beam still hits, far beam clear: wider on that side, go the other way");
+			CHECK_T("S5-H31a", scan_tan_pm(450) == 1000 && scan_cos_pm(600) == 500 && scan_sin_pm(300) == 500 &&
+				scan_stan_pm(-450) == -1000, "tan / cos / sin tables");
+			sim_sweep2(mm, 300, -100, 100, 0, 0, 0, 8, 1);
+			okp = scan_profile(mm, &r);
+			CHECK_T("S5-H31c", okp && abs(r.width_mm - 200) <= 50 && !r.out_left && !r.out_right,
+				"20 cm box dead ahead at 30 cm: width within 5 cm, room");
+			sim_sweep2(mm, 300, -30, 170, 0, 0, 0, 8, 1);
+			okp = scan_profile(mm, &r);
+			CHECK_T("S5-H31d", okp && r.side == OBS_SIDE_LEFT, "box more to the right: go LEFT");
+			sim_sweep2(mm, 300, -170, 30, 0, 0, 0, 8, 1);
+			okp = scan_profile(mm, &r);
+			CHECK_T("S5-H31e", okp && r.side == OBS_SIDE_RIGHT, "box more to the left: go RIGHT");
+			sim_sweep2(mm, 300, -100, 100, -150, 0, 0, 8, 1);
+			okp = scan_profile(mm, &r);
+			CHECK_T("S5-H31f", okp && r.side == OBS_SIDE_RIGHT,
+				"a wall 15 cm to the left: nearer than the move needs, go right (room is judged by distance)");
+			mm[SCAN_STEP_CENTRE] = SCAN_NO_ECHO;
+			CHECK_T("S5-H31h", !scan_profile(mm, &r), "no centre echo: no profile");
+			/* boxes whose edges lie inside +-30 deg, centred or off by 5 cm */
+			for (D = 250; D <= 300; D += 50) {
+				for (w = 100; w <= 250; w += 50) {
+					for (off = -50; off <= 50; off += 50) {
+						sim_sweep2(mm, D, off - w / 2, off + w / 2, 0, 0, 0, 8, 1);
+						(void)scan_profile(mm, &r);
+						if (r.out_left || r.out_right) {
+							continue;
+						}
+						err = abs(r.width_mm - w);
+						worst = (err > worst) ? err : worst;
+						if (off != 0 && r.side != ((off > 0) ? OBS_SIDE_LEFT : OBS_SIDE_RIGHT)) {
+							bad_side++;
+						}
+						n++;
+					}
 				}
 			}
+			printf("      (S5-H31i: %d cases, worst width error %d mm, wrong side %d)\n", n, worst, bad_side);
+			CHECK_T("S5-H31i", n > 0 && worst <= 100 && bad_side == 0,
+				"10-25 cm boxes at 25-30 cm with a narrow beam: width within 10 cm, the side away from the offset");
+		}
+		/* S5-H32: the width calibration (8 cm read 436, 20 cm 521, 40 cm 637;
+		   real = 1.59 x read - 664: the fitted line less 50 mm) */
+		{
+			SCAN_RESULT rc;
+
+			memset(&rc, 0, sizeof rc);
+			rc.width_mm = 436; rc.half_left_mm = 218; rc.half_right_mm = 218;
+			CHECK_T("S5-H32b", scan_width_calibrated(&rc, 295) && rc.width_mm == 29 &&
+				rc.half_left_mm == 14, "read 436: 1.59 x 436 - 664 = 29 mm, halves scaled");
+			rc.width_mm = 521; rc.half_left_mm = 260; rc.half_right_mm = 261;
+			CHECK_T("S5-H32f", scan_width_calibrated(&rc, 295) && abs(rc.width_mm - 164) <= 2 &&
+				abs(rc.half_left_mm - rc.width_mm / 2) <= 1, "read 521: 1.59 x 521 - 664 = 164 mm, halves scaled");
+			rc.width_mm = 637;
+			CHECK_T("S5-H32c", scan_width_calibrated(&rc, 295) && abs(rc.width_mm - 349) <= 2,
+				"read 637: about 349 mm");
+			rc.width_mm = 346;
+			CHECK_T("S5-H32d", !scan_width_calibrated(&rc, 190) && rc.width_mm == 346,
+				"after creeping to 19 cm: outside the calibration, left as read");
+			rc.width_mm = 300;
+			CHECK_T("S5-H32e", scan_width_calibrated(&rc, 300) && rc.width_mm == 0,
+				"a reading below the calibrated range is never negative");
 		}
 
 		/* ---- interrupt-driven echo capture (Tribunal 1, replaces the busy-wait) ---- */

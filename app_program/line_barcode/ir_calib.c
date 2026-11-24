@@ -56,7 +56,8 @@ ir_calib_darkness (ir_calib_t const * p_cal, int32_t dark_count)
 
     if (span >= LB_CAL_SPAN_MIN)
     {
-        /* Largest intermediate value is 4095 * 1000, which fits int32_t. */
+        /* Largest intermediate value is LB_ADC_MAX_COUNT * 1000, which
+         * fits int32_t. */
         result = ((dark_count - p_cal->white_level) * LB_DARK_MAX) / span;
 
         if (result < 0)
@@ -79,24 +80,6 @@ ir_calib_darkness (ir_calib_t const * p_cal, int32_t dark_count)
     }
 
     return (result);
-}
-
-bool
-ir_calib_is_valid (ir_calib_t const * p_cal)
-{
-    bool b_valid = false;
-
-    if (NULL != p_cal)
-    {
-        b_valid = ((p_cal->black_level - p_cal->white_level)
-                   >= LB_CAL_SPAN_MIN);
-    }
-    else
-    {
-        /* NULL pointer: not valid. */
-    }
-
-    return (b_valid);
 }
 
 void
@@ -123,7 +106,8 @@ ir_calib_probe_push (ir_calib_probe_t * p_probe, int32_t dark_count)
     if (NULL != p_probe)
     {
         /* NOTE: a probe is fed for a few seconds at 100 samples per second,
-         * so the sum stays far below the int32_t limit (300 * 4095). */
+         * so the sum stays far below the int32_t limit
+         * (300 * LB_ADC_MAX_COUNT). */
         p_probe->sum += dark_count;
 
         if (dark_count < p_probe->min_count)

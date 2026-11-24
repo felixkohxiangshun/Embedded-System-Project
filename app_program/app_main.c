@@ -21,7 +21,7 @@
  *	  motor_control/  Motor        PID speed loop, encoders, start button ISR
  *	  line_barcode/  IR sensors   1 kHz ADC sampler, Line task, Barcode task
  *	  imu_terrain/  IMU          hump detection, lifted (upside down) stop
- *	  dashboard/  Dashboard    telemetry task, WiFi / MQTT status, JSON, commands
+ *	  dashboard/  Dashboard    telemetry task, WiFi / MQTT, binary frames, commands
  *	  mission_obstacle/  Mission      system statechart, Obstacle Scan
  *
  *	They talk only through kernel objects (message buffers, one event flag,

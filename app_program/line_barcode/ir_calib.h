@@ -54,15 +54,6 @@ int32_t ir_calib_raw_to_dark(uint16_t raw_adc);
 int32_t ir_calib_darkness(ir_calib_t const * p_cal, int32_t dark_count);
 
 /*!
- * @brief Check that a calibration is usable (black clearly above white).
- *
- * @param[in] p_cal  Calibration to check; must not be NULL.
- *
- * @return true if the span is at least LB_CAL_SPAN_MIN counts.
- */
-bool ir_calib_is_valid(ir_calib_t const * p_cal);
-
-/*!
  * @brief Start a new measurement of one surface.
  *
  * @param[out] p_probe  Probe to clear; must not be NULL.

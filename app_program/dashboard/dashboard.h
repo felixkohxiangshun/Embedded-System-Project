@@ -10,6 +10,8 @@
 #define MQTTM_DEBUG		5	/* binary debug frame (debug topic) */
 #define MQTTM_HEARTBEAT		6	/* binary heartbeat (heartbeat topic) */
 #define MQTTM_BARCODE		7	/* barcode trace (barcode topic) */
+#define MQTTM_IMU		8	/* IMU frame (imu topic) */
+#define MQTTM_MAP		9	/* junction mapping received (map topic) */
 
 #include "dash_logic.h"
 

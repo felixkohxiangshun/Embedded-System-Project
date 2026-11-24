@@ -209,11 +209,7 @@ lb_sim_line_defaults (lb_sim_line_cfg_t * p_cfg)
 
     p_cfg->speed_mmps        = 120.0;   /* Motor: normal speed */
     p_cfg->axle_to_sensor_mm = 80.0;    /* assumed; measure on the car */
-#if (LB_LINE_STRADDLE != 0)
     p_cfg->sensor_gap_mm     = 30.0;    /* straddle: wider than the line */
-#else
-    p_cfg->sensor_gap_mm     = 18.0;    /* about one line width */
-#endif
     p_cfg->spot_mm           = 6.0;
     p_cfg->line_mm           = 18.0;    /* Barcode & Line Specification */
     p_cfg->track_mm          = 130.0;   /* Motor: wheel base */
@@ -357,7 +353,6 @@ lb_sim_line_run (lb_sim_line_cfg_t const * p_cfg, lb_sim_line_result_t * p_res)
                 p_res->ticks_total++;
                 if (LINE_RECOV_COAST == ro.mode) { p_res->ticks_coast++; }
                 if (LINE_RECOV_SWEEP == ro.mode) { p_res->ticks_sweep++; }
-                if (ro.b_resumed) { p_res->recoveries++; }
                 if (0u != (ro.flags & LINE_RECOV_F_TIMEOUT))
                 {
                     p_res->b_timeout = true;

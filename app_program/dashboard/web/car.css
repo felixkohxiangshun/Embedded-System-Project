@@ -28,7 +28,6 @@
 .steer-row { display: grid; grid-template-columns: 48px 1fr 46px; align-items: center; gap: 8px; margin-bottom: 12px; }
 .steer-track { position: relative; height: 16px; background: linear-gradient(90deg, #eef0f1 49.6%, #aeb5bb 49.6% 50.4%, #eef0f1 50.4%); border: 1px solid var(--subtle-rule); }
 .steer-track i { position: absolute; top: -2px; width: 4px; height: 18px; margin-left: -2px; left: 50%; background: #9c3d14; transition: left 80ms linear; }
-#trace { width: 100%; display: block; }
 .events { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow: auto; font-family: var(--mono); font-size: 12px; }
 .events li { padding: 3px 0; border-bottom: 1px solid var(--subtle-rule); }
 .events time { color: var(--secondary); margin-right: 10px; }
@@ -42,3 +41,10 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+.map-form { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px 10px; margin-top: 12px; align-items: end; }
+.map-form .map-title { grid-column: 1 / -1; color: var(--secondary); font-size: 12px; }
+.map-form label { display: flex; flex-direction: column; gap: 4px; color: var(--secondary); font-size: 12px; }
+.map-form input { width: 100%; box-sizing: border-box; text-transform: uppercase; text-align: center; font-family: var(--mono); font-size: 16px; padding: 4px; }
+.map-form button { grid-column: 1 / -1; }
+.map-form small { grid-column: 1 / -1; color: var(--secondary); }

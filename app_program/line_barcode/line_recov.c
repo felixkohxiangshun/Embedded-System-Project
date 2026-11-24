@@ -68,7 +68,6 @@ line_recov_step (line_recov_t * p_recov,
     if ((NULL != p_recov) && (NULL != p_in) && (NULL != p_out))
     {
         p_out->flags     = 0u;
-        p_out->b_resumed = false;
 
         if (LINE_RECOV_TRACK == p_recov->mode)
         {
@@ -160,7 +159,6 @@ step_search (line_recov_t * p_recov,
         p_recov->seen_ticks = 0;
         p_recov->lost_ms    = 0;
         p_out->steer        = p_in->steer;
-        p_out->b_resumed    = true;
     }
     else
     {

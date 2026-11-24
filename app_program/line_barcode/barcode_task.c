@@ -87,7 +87,6 @@ capture_one_code (capture_t * p_capture)
 
     bc_stream_reset(&g_stream);
     p_capture->b_posted = false;
-    g_lb_stats.bc_state = LB_BC_STATE_WAITING;
 
     while (!b_done)
     {
@@ -108,7 +107,6 @@ capture_one_code (capture_t * p_capture)
             bc_stream_reset(&g_stream);
             p_capture->b_posted = false;
             quiet_ms            = 0;
-            g_lb_stats.bc_state = LB_BC_STATE_WAITING;
         }
         else
         {
@@ -224,7 +222,6 @@ handle_edge (capture_t * p_capture, MSG_EDGE const * p_msg)
     int32_t           now_mm = travelled_mm();
 
     g_lb_stats.bc_edges++;
-    g_lb_stats.bc_state = LB_BC_STATE_CAPTURING;
 
     /* Cast: LB_BC_FIRST_WINDOW_MM is a small constant. */
     if ((2u == before) && (0u != p_msg->dark)
@@ -262,7 +259,6 @@ handle_edge (capture_t * p_capture, MSG_EDGE const * p_msg)
 
     if (BC_STREAM_EVENT_SEEN == event)
     {
-        g_lb_stats.bc_seen++;
         post_message(BC_SEEN, 0u);
     }
     else if (BC_STREAM_EVENT_FULL == event)
@@ -300,8 +296,6 @@ decode_and_post (capture_t * p_capture)
     bool               b_reversed = false;
     bool               b_accept   = false;
 
-    g_lb_stats.bc_state = LB_BC_STATE_DECODING;
-
     status   = bc_stream_decode(&g_stream, &command, &b_reversed);
     b_accept = (BC_DECODE_OK == status)
                && ((!b_reversed) || (0 != LB_BC_ACCEPT_REVERSED));
@@ -314,7 +308,6 @@ decode_and_post (capture_t * p_capture)
 
     if (b_accept)
     {
-        g_lb_stats.bc_state = LB_BC_STATE_POST;
         g_lb_stats.bc_last  = command;
         g_lb_stats.bc_decoded++;
         post_message(BC_OK, command);
@@ -344,7 +337,6 @@ finish_capture (capture_t * p_capture)
 
             if (!p_capture->b_posted)
             {
-                g_lb_stats.bc_state = LB_BC_STATE_FAILED;
                 g_lb_stats.bc_failed++;
                 post_message(BC_FAIL, 0u);
             }
