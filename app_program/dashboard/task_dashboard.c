@@ -1,14 +1,15 @@
 #include "dashboard.h"
 #include "../line_barcode/line_barcode.h"
 #include "../mission_obstacle/mission_obstacle.h"
+#include "../imu_terrain/imu_terrain.h"
 #include "../line_barcode/ir_driver.h"
 
 /* 1 publishes a debug frame (line sensors, steering, barcode counters,
    ultrasonic) every DASH_TICK_MS while online.  It is extra to the graded
    telemetry and goes on its own topic. */
 /* 1: line-sensor calibration.  darkC / darkR on the debug topic carry the
-   RAW filtered counts of the centre and right sensors divided by 4
-   (0..4095 -> 0..1023) instead of the calibrated darkness, so the white and
+   RAW filtered counts of the centre and right sensors (10-bit, 0..1023,
+   LB_ADC_BITS) instead of the calibrated darkness, so the white and
    black values can be read off the dashboard.  Restore 0. */
 #ifndef DASH_RAW_IR
 #define DASH_RAW_IR		0
@@ -77,8 +78,8 @@ LOCAL void send_out(UB kind, const UB *data, INT len)
 LOCAL void sample_debug(DASH_DEBUG *g)
 {
 #if DASH_RAW_IR
-	g->dark_c = (INT)(ir_driver_get_dark(IR_CHANNEL_CENTRE) / 4);
-	g->dark_r = (INT)(ir_driver_get_dark(IR_CHANNEL_RIGHT) / 4);
+	g->dark_c = (INT)ir_driver_get_dark(IR_CHANNEL_CENTRE);	/* already 10-bit */
+	g->dark_r = (INT)ir_driver_get_dark(IR_CHANNEL_RIGHT);
 #else
 	g->dark_c = (INT)g_lb_stats.line_dark_centre;
 	g->dark_r = (INT)g_lb_stats.line_dark_right;
@@ -92,16 +93,11 @@ LOCAL void sample_debug(DASH_DEBUG *g)
 	g->bc_last = (UB)g_lb_stats.bc_last;
 	g->ultra_mm = s5_scan_last_mm;
 	g->scan_state = s5_scan_state;
-	g->scan_mm[0] = s5_scan_mm[0];
-	g->scan_mm[1] = s5_scan_mm[1];
-	g->scan_mm[2] = s5_scan_mm[2];
-	g->scan_mm[3] = s5_scan_mm[3];
-	g->scan_mm[4] = s5_scan_mm[4];
 	g->scan_side = s5_scan_side;
 	g->bc_exit = s5_bc_exit;
 	g->byp_result = s5_byp_result;
-	g->echo_rise_us = (INT)s5_echo_rise_us;
-	g->echo_edges = (INT)s5_echo_edges;
+	g->width_mm = s5_scan_width_mm;
+	g->half_l_mm = s5_scan_half_mm[0];
 	g->bc_status = (UB)g_lb_stats.bc_status;
 	g->bc_count = g_lb_stats.bc_count;
 	g->motor_state = MOT_STOPPED;
@@ -109,6 +105,20 @@ LOCAL void sample_debug(DASH_DEBUG *g)
 		g->motor_state = app_state.motor_state;
 		state_unlock();
 	}
+}
+#endif
+
+#if DASH_DEBUG_FRAMES
+/* The IMU subsystem's live values (read without a lock: a display only) */
+LOCAL void sample_imu(DASH_IMU *m)
+{
+	m->state = s3_state;
+	m->calibrated = s3_calibrated ? 1 : 0;
+	m->lean_um = s3_h_um;
+	m->last_mm = s3_last_mm;
+	m->max_mm = s3_max_mm;
+	m->humps = s3_humps;
+	m->rise = s3_rise;
 }
 #endif
 
@@ -124,6 +134,8 @@ EXPORT void dashboard_task(INT stacd, void *exinf)
 	UB              bc_frame[DASH_BC_TRACE_MAX];
 	UW              bc_edges[DASH_BC_TRACE_EDGES];
 	UW              bc_seq_sent = 0;
+	UB              imu_seq = 0;
+	DASH_IMU        imu;
 #endif
 	UB              stored = 0;		/* Mission's letter for the next junction */
 	DASH            d;
@@ -164,6 +176,16 @@ EXPORT void dashboard_task(INT stacd, void *exinf)
 				if (cmd) {
 					c.cmd = cmd;
 					MBF_SEND(mbf_mqttcmd, c);
+				}
+			} else if (in.kind == MQTTM_MAP) {
+				if (dash_parse_map(in.data, in.len, c.letters)) {
+					c.cmd = MQTTCMD_MAP;
+					MBF_SEND(mbf_mqttcmd, c);
+					tm_printf((UB*)"[map] U-turn %c, left %c, right %c, straight %c\n",
+						  c.letters[0] ? c.letters[0] : '-',
+						  c.letters[1] ? c.letters[1] : '-',
+						  c.letters[2] ? c.letters[2] : '-',
+						  c.letters[3] ? c.letters[3] : '-');
 				}
 			}
 		}
@@ -208,6 +230,13 @@ EXPORT void dashboard_task(INT stacd, void *exinf)
 			len = dash_pack_debug(&g, debug_seq++, frame, (INT)sizeof(frame));
 			if (len > 0) {
 				send_out(MQTTM_DEBUG, frame, len);
+			}
+			if ((debug_seq % DASH_IMU_EVERY) == 0) {
+				sample_imu(&imu);
+				len = dash_pack_imu(&imu, imu_seq++, frame, (INT)sizeof(frame));
+				if (len > 0) {
+					send_out(MQTTM_IMU, frame, len);
+				}
 			}
 			/* A capture finished: send its element widths once. */
 			if (g_lb_bc_trace.seq != bc_seq_sent) {

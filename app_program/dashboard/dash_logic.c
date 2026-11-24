@@ -190,21 +190,6 @@ EXPORT INT dash_format_telem(const MSG_TELEM *t, char *buf, INT size)
 	return jb_end(&j);
 }
 
-EXPORT INT dash_format_heartbeat(UW uptime_ms, UB sys_state, char *buf, INT size)
-{
-	JB j = { buf, size, 0, FALSE };
-
-	if (size < 2) {
-		return -1;
-	}
-	jb_ch(&j, '{');
-	jb_str(&j, "\"heartbeat\":1,\"state\":\"");
-	jb_str(&j, state_name(sys_state));
-	jb_ch(&j, '"');
-	jb_field(&j, "t_ms", (INT)uptime_ms, FALSE);
-	return jb_end(&j);
-}
-
 /* A command is exactly one byte (minimum-bit rule): bit 0 is the command,
    1 = START, 0 = STOP, read with protocol_bits like every other field.
    Bits 1..7 must be 0.  Anything else (another length, a stray bit, old
@@ -220,6 +205,43 @@ EXPORT UB dash_parse_cmd(const char *data, INT len)
 		return 0;
 	}
 	return start ? MQTTCMD_START : MQTTCMD_STOP;
+}
+
+EXPORT BOOL dash_parse_map(const char *data, INT len, UB letters[MQTTCMD_TURNS])
+{
+	uint32_t cur = 0, v = 0, spare = 1;
+	UB       got[MQTTCMD_TURNS];
+	INT      i, j;
+
+	if (data == NULL || len != DASH_MAP_BYTES) {
+		return FALSE;
+	}
+	for (i = 0; i < MQTTCMD_TURNS; i++) {
+		if (!protocol_bits_get((const uint8_t *)data, DASH_MAP_BYTES, &cur, 31, &v)) {
+			return FALSE;
+		}
+		if (v == DASH_CHAR_NONE) {
+			got[i] = 0;
+		} else if (v <= 25u) {
+			got[i] = (UB)('A' + v);
+		} else {
+			return FALSE;		/* 26..30: not a letter */
+		}
+	}
+	if (!protocol_bits_get((const uint8_t *)data, DASH_MAP_BYTES, &cur, DASH_MAP_SPARE, &spare) || spare != 0) {
+		return FALSE;
+	}
+	for (i = 0; i < MQTTCMD_TURNS; i++) {
+		for (j = i + 1; j < MQTTCMD_TURNS; j++) {
+			if (got[i] != 0 && got[i] == got[j]) {
+				return FALSE;	/* one letter for two turns */
+			}
+		}
+	}
+	for (i = 0; i < MQTTCMD_TURNS; i++) {
+		letters[i] = got[i];
+	}
+	return TRUE;
 }
 
 /* ---- Binary frames ------------------------------------------------------ */
@@ -308,17 +330,33 @@ EXPORT INT dash_pack_debug(const DASH_DEBUG *g, UB seq, UB *buf, INT size)
 	ok &= put(buf, size, &cur, g->bc_status & 15u, 15);
 	ok &= put(buf, size, &cur, clampi((INT)g->bc_count, 0, 63), 63);
 	ok &= put(buf, size, &cur, g->scan_state & 7u, 7);
-	ok &= put(buf, size, &cur, clampi(g->scan_mm[0], 0, 4095), 4095);
-	ok &= put(buf, size, &cur, clampi(g->scan_mm[1], 0, 4095), 4095);
-	ok &= put(buf, size, &cur, clampi(g->scan_mm[2], 0, 4095), 4095);
-	ok &= put(buf, size, &cur, clampi(g->scan_mm[3], 0, 4095), 4095);
-	ok &= put(buf, size, &cur, clampi(g->scan_mm[4], 0, 4095), 4095);
 	ok &= put(buf, size, &cur, g->scan_side & 3u, 3);
 	ok &= put(buf, size, &cur, g->bc_exit & 7u, 7);
-	ok &= put(buf, size, &cur, clampi(g->echo_rise_us, 0, 4095), 4095);
-	ok &= put(buf, size, &cur, clampi(g->echo_edges, 0, 15), 15);
-	ok &= put(buf, size, &cur, g->byp_result & 3u, 3);	/* bits 189-190 of 192 */
+	ok &= put(buf, size, &cur, clampi(g->width_mm, 0, 1023), 1023);
+	ok &= put(buf, size, &cur, clampi(g->half_l_mm, 0, 1023), 1023);
+	ok &= put(buf, size, &cur, g->byp_result & 3u, 3);	/* bits 133-134 */
 	return ok ? DASH_DEBUG_BYTES : -1;
+}
+
+/* Returns DASH_IMU_BYTES, or -1 if buf is too small */
+EXPORT INT dash_pack_imu(const DASH_IMU *m, UB seq, UB *buf, INT size)
+{
+	UW   cur = 0;
+	BOOL ok = TRUE;
+
+	if (size < DASH_IMU_BYTES) {
+		return -1;
+	}
+	zero(buf, DASH_IMU_BYTES);
+	ok &= put(buf, size, &cur, seq, 255);
+	ok &= put(buf, size, &cur, m->state & 7u, 7);
+	ok &= put(buf, size, &cur, m->calibrated ? 1 : 0, 1);
+	ok &= put(buf, size, &cur, clampi(m->lean_um / 100, -1024, 1023) + 1024, 2047);
+	ok &= put(buf, size, &cur, clampi(m->last_mm, 0, 127), 127);
+	ok &= put(buf, size, &cur, clampi(m->max_mm, 0, 127), 127);
+	ok &= put(buf, size, &cur, (INT)(m->humps & 0xFFu), 255);
+	ok &= put(buf, size, &cur, clampi(m->rise, -4096, 4095) + 4096, 8191);
+	return ok ? DASH_IMU_BYTES : -1;
 }
 
 /* Returns the frame length, or -1 if buf is too small or count is bad */

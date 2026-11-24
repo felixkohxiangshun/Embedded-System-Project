@@ -16,7 +16,8 @@
  *	scan_task pulses TRIG, then BLOCKS on flg_echo with a 30 ms timeout.  The
  *	bank-0 GPIO interrupt (motor_control/gpio_isr.c, the only handler for that
  *	interrupt line) calls ultra_echo_isr() on each ECHO edge; that stamps the
- *	1 MHz timer and, on the falling edge, sets flg_echo.  A timeout means no
+ *	timer (23.4 kHz on this board, converted with TIMER_COUNTS_TO_US) and,
+ *	on the falling edge, sets flg_echo.  A timeout means no
  *	object in range.  Only the 10 us TRIG pulse is still a busy-wait.
  *	The capture logic is pure and unit-tested on a PC (echo_edge, scan_logic.c).
  *
@@ -39,27 +40,9 @@
 
 LOCAL ECHO echo;		/* shared by the interrupt and scan_task */
 
-/* Debug, for the sensor test (read with the debug probe): time of the last
-   trigger, of the first rise and first fall after it, the number of ECHO
-   edges since the trigger, and how many pings had no fall at all. */
-EXPORT volatile UW s5_echo_dbg[5];
-/* The same, latched once per ping for the dashboard: how long after the
-   trigger ECHO first went high (us, 0 = it never did), and how many ECHO
-   edges arrived.  A healthy HC-SR04 rises about 450-500 us after the
-   trigger and gives exactly 2 edges. */
-EXPORT volatile UW s5_echo_rise_us;
-EXPORT volatile UW s5_echo_edges;
-
 /* Called from the bank-0 GPIO interrupt (gpio_isr.c).  Never blocks. */
 EXPORT void ultra_echo_isr(UW now_us, UW edges)
 {
-	s5_echo_dbg[3]++;
-	if ((edges & ECHO_EDGE_RISE) && s5_echo_dbg[1] == 0) {
-		s5_echo_dbg[1] = now_us;
-	}
-	if ((edges & ECHO_EDGE_FALL) && s5_echo_dbg[2] == 0) {
-		s5_echo_dbg[2] = now_us;
-	}
 	if (echo_edge(&echo, now_us, edges)) {
 		tk_set_flg(flg_echo, ECHO_FLG_DONE);
 	}
@@ -116,21 +99,13 @@ LOCAL UW ping_width_us(void)
 	tk_clr_flg(flg_echo, 0);		/* drop a completion left over from a late echo */
 	echo_arm(&echo);
 
-	s5_echo_dbg[1] = 0;
-	s5_echo_dbg[2] = 0;
-	s5_echo_dbg[3] = 0;
 	gpio_set_val(PIN_ULTRA_TRIG, 1);
 	busy_us(10);		/* 10 counts = 427 us; the sensor needs >= 10 us */
 	gpio_set_val(PIN_ULTRA_TRIG, 0);
-	s5_echo_dbg[0] = APP_NOW_US();
 
 	er = tk_wai_flg(flg_echo, ECHO_FLG_DONE, TWF_ORW | TWF_BITCLR, &ptn, ECHO_TIMEOUT_MS);
-	s5_echo_edges = s5_echo_dbg[3];
-	s5_echo_rise_us = (s5_echo_dbg[1] != 0) ?
-		TIMER_COUNTS_TO_US(s5_echo_dbg[1] - s5_echo_dbg[0]) : 0;
 	if (er < E_OK) {
 		echo_disarm(&echo);		/* ignore the edge if it arrives later */
-		s5_echo_dbg[4]++;
 		return 0;
 	}
 	return TIMER_COUNTS_TO_US(echo.width_us);	/* timer counts -> us */

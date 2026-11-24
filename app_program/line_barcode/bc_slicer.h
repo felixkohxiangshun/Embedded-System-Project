@@ -95,15 +95,5 @@ bool bc_slicer_step(bc_slicer_t * p_slicer,
                     uint32_t now_us,
                     bc_slicer_edge_t * p_edge);
 
-/*!
- * @brief Current mid-level between the last extreme and the candidate, for
- *        tracing and tests.
- *
- * @param[in] p_slicer  Slicer state; must not be NULL.
- *
- * @return Mid-level in dark-scale counts; 0 if p_slicer is NULL.
- */
-int32_t bc_slicer_get_threshold(bc_slicer_t const * p_slicer);
-
 #endif /* BC_SLICER_H */
 /*** end of file ***/

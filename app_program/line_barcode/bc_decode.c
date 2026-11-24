@@ -22,7 +22,6 @@
 #define ELEMENTS_PER_CHAR       9u      /* 5 bars and 4 spaces */
 #define BARS_PER_CHAR           5u
 #define SPACES_PER_CHAR         4u
-#define NARROW_BARS_PER_CHAR    3u      /* 5 bars, 2 of them wide */
 #define NARROW_SPACES_PER_CHAR  3u      /* 4 spaces, 1 of them wide */
 #define NUM_CHARS               3u      /* '*', command, '*' */
 #define CHAR_STRIDE             10u     /* 9 elements + 1 gap */
@@ -40,7 +39,6 @@
 typedef struct
 {
     uint32_t wide_mask;         /* bit n set: element n (0 to 8) is wide */
-    uint32_t narrow_bar_us;     /* average width of its narrow bars */
     uint32_t narrow_space_us;   /* average width of its narrow spaces */
     uint32_t total_us;          /* time to read all nine elements */
 } char_info_t;
@@ -393,8 +391,6 @@ classify_character (uint32_t const * p_width, char_info_t * p_info)
             }
         }
 
-        p_info->narrow_bar_us   = (bar_sum - bar[0] - bar[1])
-                                  / NARROW_BARS_PER_CHAR;
         p_info->narrow_space_us = (space_sum - space[0])
                                   / NARROW_SPACES_PER_CHAR;
         p_info->total_us        = bar_sum + space_sum;
@@ -519,7 +515,7 @@ static bc_decode_status_t
 decode_elements (uint32_t const * p_width, uint8_t * p_command)
 {
     bc_decode_status_t status = BC_DECODE_OK;
-    char_info_t        info[NUM_CHARS]   = { { 0u, 0u, 0u, 0u } };
+    char_info_t        info[NUM_CHARS]   = { { 0u, 0u, 0u } };
     uint8_t            symbol[NUM_CHARS] = { 0u };
     uint32_t           idx               = 0u;
 

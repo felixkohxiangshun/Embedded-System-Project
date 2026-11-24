@@ -89,7 +89,6 @@ typedef struct
     int32_t           steer;        /* steering to send to Mission */
     uint8_t           flags;        /* LINE_RECOV_F_xxx */
     line_recov_mode_t mode;         /* mode after this tick */
-    bool              b_resumed;    /* true on the tick tracking resumes */
 } line_recov_out_t;
 
 /*!

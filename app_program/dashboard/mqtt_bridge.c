@@ -31,8 +31,10 @@
 #define TOPIC_TELEM	"csc11/dev/car/telemetry"
 #define TOPIC_DEBUG	"csc11/dev/car/debug"
 #define TOPIC_BARCODE	"csc11/dev/car/barcode"
+#define TOPIC_IMU	"csc11/dev/car/imu"
 #define TOPIC_HB	"csc11/dev/car/heartbeat"
 #define TOPIC_CMD	"csc11/dev/car/cmd"
+#define TOPIC_MAP	"csc11/dev/car/map"	/* junction mapping, retained */
 
 #define BACKOFF_MIN_MS	1000u
 #define BACKOFF_MAX_MS	16000u
@@ -40,7 +42,7 @@
 #define FRAME_MAX	96u	/* longest frame published (barcode trace, 81) */
 
 static mqtt_client_t *client;
-static uint8_t  connecting, online, retry_pending, rx_active;
+static uint8_t  connecting, online, retry_pending, rx_active, rx_kind;
 static uint32_t retry_at, retry_ms = BACKOFF_MIN_MS;
 static uint32_t tx_ok, tx_fail;
 static uint8_t  rx_data[CMD_MAX];
@@ -66,7 +68,9 @@ static void incoming_publish(void *arg, const char *topic, uint32_t length)
 {
 	(void)arg;
 	rx_len = 0;
-	rx_active = (strcmp(topic, TOPIC_CMD) == 0 && length > 0 && length <= CMD_MAX);
+	rx_kind = (strcmp(topic, TOPIC_CMD) == 0) ? DASH_BRIDGE_COMMAND :
+		  ((strcmp(topic, TOPIC_MAP) == 0) ? DASH_BRIDGE_MAP : 0);
+	rx_active = (rx_kind != 0 && length > 0 && length <= CMD_MAX);
 }
 
 static void incoming_data(void *arg, const uint8_t *data, uint16_t length, uint8_t flags)
@@ -85,7 +89,16 @@ static void incoming_data(void *arg, const uint8_t *data, uint16_t length, uint8
 	rx_len += length;
 	if ((flags & MQTT_DATA_FLAG_LAST) != 0) {
 		rx_active = 0;
-		dash_bridge_put(DASH_BRIDGE_COMMAND, rx_data, rx_len);
+		dash_bridge_put(rx_kind, rx_data, rx_len);
+	}
+}
+
+static void map_subscribed(void *arg, err_t result)
+{
+	(void)arg;
+	if (result != ERR_OK) {
+		/* commands still work; the car keeps its default letters */
+		tm_printf((const unsigned char *)"[mqtt] map subscribe failed err=%d\n", (int)result);
 	}
 }
 
@@ -97,6 +110,10 @@ static void subscribe_done(void *arg, err_t result)
 		mqtt_disconnect(client);
 		went_offline();
 		return;
+	}
+	/* the junction mapping: the broker sends the retained one straight away */
+	if (mqtt_subscribe(client, TOPIC_MAP, 1, map_subscribed, NULL) != ERR_OK) {
+		tm_printf((const unsigned char *)"[mqtt] map subscribe request failed\n");
 	}
 	online = 1;
 	retry_pending = 0;
@@ -135,6 +152,7 @@ static const char *topic_for(uint8_t kind)
 	case DASH_BRIDGE_DEBUG:		return TOPIC_DEBUG;
 	case DASH_BRIDGE_HEARTBEAT:	return TOPIC_HB;
 	case DASH_BRIDGE_BARCODE:	return TOPIC_BARCODE;
+	case DASH_BRIDGE_IMU:		return TOPIC_IMU;
 	default:			return NULL;
 	}
 }

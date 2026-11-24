@@ -43,7 +43,6 @@ static UINT const g_pin[NUM_CHANNELS] =
 };
 
 static ir_filter_t      g_filter[NUM_CHANNELS];
-static bc_slicer_t      g_slicer;
 static bc_level_t       g_level;    /* digital mode: DO debouncer */
 
 /* IO_BANK0 register 3 covers pins 24..31 (GP28 is the barcode DO); see
@@ -57,9 +56,7 @@ static volatile int32_t g_dark[NUM_CHANNELS];
 static uint16_t adc_convert(uint32_t channel);
 static int32_t  adc_read_dark(uint32_t channel);
 static int32_t  read_barcode_dark(void);
-#if (LB_BC_USE_GPIO_LEVEL != 0)
 static bool     read_barcode_is_dark(void);
-#endif
 static void     send_edge(bc_slicer_edge_t const * p_edge);
 
 void
@@ -72,7 +69,6 @@ ir_driver_init (void)
         ir_filter_init(&g_filter[chan]);
         g_dark[chan] = 0;
 
-#if (LB_BC_USE_GPIO_LEVEL != 0)
         if (IR_CHANNEL_BARCODE == chan)
         {
             /* The barcode sensor is wired to its digital output
@@ -88,7 +84,6 @@ ir_driver_init (void)
             out_w(IO_PROC0_INTE3, in_w(IO_PROC0_INTE3) | BC_EDGE_BITS);
         }
         else
-#endif
         {
             /* Analogue line-sensor pin (AO): no digital function, no pull
              * resistors, so the pin follows the sensor voltage. */
@@ -96,8 +91,6 @@ ir_driver_init (void)
             clr_w(GPIO(g_pin[chan]), GPIO_IE | GPIO_PUE | GPIO_PDE);
         }
     }
-
-    bc_slicer_init(&g_slicer);
 
     /* Switch the ADC on and wait until it is ready.  The kernel already
      * released the block from reset (USE_SDEV_DRV). */
@@ -127,16 +120,15 @@ ir_sampler_isr (void * p_exinf)
         g_dark[chan] = ir_filter_push(&g_filter[chan], adc_read_dark(chan));
     }
 
-    /* Barcode sensor (digital level): same average, then the slicer finds
-     * the edges.  The average adds the same delay to every edge, so the
-     * element widths that the decoder measures are not changed. */
+    /* Barcode sensor (digital level): the same 10 ms average, for the
+     * dashboard and the calibration readout only; the edges themselves come
+     * from the debounced DO level (bc_level.c). */
     dark_bar = ir_filter_push(&g_filter[IR_CHANNEL_BARCODE],
                               read_barcode_dark());
     g_dark[IR_CHANNEL_BARCODE] = dark_bar;
 
-#if (LB_BC_USE_GPIO_LEVEL != 0)
-    /* Digital: the edges come from the GPIO interrupt with exact times;
-     * here only a level that has stopped changing is confirmed. */
+    /* The edges come from the GPIO interrupt with exact times; here only
+     * a level that has stopped changing is confirmed. */
     {
         UINT intsts = 0u;
         bool b_edge = false;
@@ -154,17 +146,6 @@ ir_sampler_isr (void * p_exinf)
             /* No edge confirmed in this millisecond (the normal case). */
         }
     }
-    (void)g_slicer;
-#else
-    if (bc_slicer_step(&g_slicer, dark_bar, start_us, &edge))
-    {
-        send_edge(&edge);
-    }
-    else
-    {
-        /* No edge in this millisecond (the normal case). */
-    }
-#endif
 
     /* Keep the longest run so the tests can check the CPU budget. */
     used_us = (uint32_t)APP_NOW_US() - start_us;
@@ -260,16 +241,7 @@ adc_read_dark (uint32_t channel)
 }
 
 /*!
- * @brief Dark-scale value of the barcode sensor.
- *
- * Digital mode (LB_BC_USE_GPIO_LEVEL 1, the wired hardware): the module's DO
- * pin on GP28 is read as a level and mapped to two fixed counts, so the
- * slicer and everything after it work the same way as in analogue mode.
- * Analogue mode (0) is kept as a fallback and reads the ADC instead.
- */
-#if (LB_BC_USE_GPIO_LEVEL != 0)
-/*!
- * @brief Digital mode: is the barcode sensor's DO pin showing a dark bar?
+ * @brief Is the barcode sensor's DO pin showing a dark bar?
  */
 static bool
 read_barcode_is_dark (void)
@@ -278,12 +250,10 @@ read_barcode_is_dark (void)
 
     return (b_high == (0 != LB_BC_GPIO_DARK_IS_HIGH));
 }
-#endif
 
 void
 lb_bc_gpio_isr (UW now_us)
 {
-#if (LB_BC_USE_GPIO_LEVEL != 0)
     bc_slicer_edge_t edge;
     UINT             intsts = 0u;
     bool             b_edge = false;
@@ -303,24 +273,21 @@ lb_bc_gpio_isr (UW now_us)
     {
         /* Chatter, or the change still has to prove itself. */
     }
-#else
-    (void)now_us;       /* analogue mode: the DO interrupt is never enabled */
-#endif
 
     return;
 }
 
+/*!
+ * @brief Dark-scale value of the barcode sensor: the DO level mapped to two
+ *        fixed counts.
+ */
 static int32_t
 read_barcode_dark (void)
 {
     int32_t dark = 0;
 
-#if (LB_BC_USE_GPIO_LEVEL != 0)
     dark = read_barcode_is_dark() ? LB_BC_GPIO_DARK_COUNT
                                   : LB_BC_GPIO_LIGHT_COUNT;
-#else
-    dark = adc_read_dark(IR_CHANNEL_BARCODE);
-#endif
 
     return (dark);
 }
@@ -337,11 +304,7 @@ send_edge (bc_slicer_edge_t const * p_edge)
     msg.t_us = (UW)p_edge->time_us;
     msg.dark = (UB)(p_edge->b_dark ? 1u : 0u);
 
-    if (E_OK == MBF_SEND(mbf_edge, msg))
-    {
-        g_lb_stats.edges_sent++;
-    }
-    else
+    if (E_OK != MBF_SEND(mbf_edge, msg))
     {
         g_lb_stats.edges_dropped++;     /* buffer full: barcode_task is late */
     }

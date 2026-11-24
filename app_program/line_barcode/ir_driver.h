@@ -8,13 +8,12 @@
  * It is the single reader of the ADC; no task touches the converter.  Each
  * run it
  *  - reads the right and centre sensors (analogue, ADC0 and ADC1) and the
- *    barcode sensor (digital DO pin on GP28, read as a GPIO level
- *    because LB_BC_USE_GPIO_LEVEL is 1; ADC2 is then unused),
+ *    barcode sensor (digital DO pin on GP28, read as a GPIO level),
  *  - averages centre and right over 10 ms (cancels 100 Hz mains flicker) for
  *    line_task to read with ir_driver_get_dark(),
- *  - filters the barcode level the same way and passes it to the
- *    slicer, which turns it into timed bar/space edges, and
- *  - sends each edge to barcode_task on mbf_edge.
+ *  - confirms DO changes that have held LB_BC_GPIO_DEBOUNCE_US (bc_level.c;
+ *    lb_bc_gpio_isr() timestamps each change), and
+ *  - sends each bar/space edge to barcode_task on mbf_edge.
  * It never blocks: the message is sent with a zero time-out.
  *
  * @par
@@ -60,7 +59,7 @@ void ir_sampler_isr(void * p_exinf);
  *                     IR_CHANNEL_BARCODE.
  *
  * @return Dark-scale count (0 to LB_ADC_MAX_COUNT, higher is darker); 0 if the channel
- *         number is invalid.  For IR_CHANNEL_BARCODE in digital mode the value
+ *         number is invalid.  For IR_CHANNEL_BARCODE the value
  *         is one of two fixed counts (LB_BC_GPIO_LIGHT_COUNT or
  *         LB_BC_GPIO_DARK_COUNT) averaged over 10 ms.
  */

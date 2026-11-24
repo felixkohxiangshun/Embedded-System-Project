@@ -42,7 +42,6 @@ EXPORT void mission_obstacle_test(void)
 	TEST_CHECK("S5-U01e", m.state == SYS_IDLE, "INIT gives up waiting: car usable offline");
 	mission_init(&m);
 	m.net_online = 1;
-	m.track_enabled = 0;		/* S5-U06 below checks the dog-leg */
 	mission_on_tick(&m, MS_INIT, MOT_STOPPED, 0, &a);
 	TEST_CHECK("S5-U01a", m.state == SYS_IDLE, "INIT -> IDLE once online and settled");
 	mission_on_button(&m, &a);
@@ -136,21 +135,32 @@ EXPORT void mission_obstacle_test(void)
 	mission_on_tick(&m, 5, MOT_ENCODER_FAULT, 0, &a);
 	TEST_CHECK("S5-U09", m.state == SYS_FAULT_RECOVERY, "ENCODER_FAULT -> FAULT_RECOVERY");
 
-	/* S5-U10: obstacle profile, a 100 mm box 250 mm ahead, room on both sides */
+	/* S5-U10: the 5-degree sweep profile (scan_profile; the full set with a
+	   simulated sensor is S5-H31 in the host tests) */
 	{
-		/* far left .. far right (45 / 22.5 deg); the outer beams see far walls */
-		INT d[SCAN_ANGLES] = { 1200, 900, 250, 700, 800 };
+		INT mm[SCAN_STEPS];
+		INT k, a;
 
-		TEST_CHECK("S5-U10a", scan_evaluate(d, &r) && r.width_mm < 300 && r.width_mm >= 0,
-			   "narrow obstacle is profiled");
-		TEST_CHECK("S5-U10b", r.clear_left_mm > r.clear_right_mm ? r.side == OBS_SIDE_LEFT
-								       : r.side == OBS_SIDE_RIGHT,
-			   "the side with more clearance is chosen");
-		/* wall of the same distance across the whole sweep: nowhere to go */
-		d[0] = 354; d[1] = 271; d[2] = 250; d[3] = 271; d[4] = 354;
-		TEST_CHECK("S5-U10c", !scan_evaluate(d, &r), "obstacle wider than the sweep -> fault");
-		d[2] = 0;
-		TEST_CHECK("S5-U10d", !scan_evaluate(d, &r), "no centre echo -> fault");
+		/* a box 250 mm ahead seen from 10 deg left to 15 deg right, open
+		   floor beyond: on the face = 250 / cos(angle) */
+		for (k = 0; k < SCAN_STEPS; k++) {
+			a = SCAN_STEP_DEG10_OF(k);
+			mm[k] = (a >= -100 && a <= 150) ? (250 * 1000) / scan_cos_pm((a < 0) ? -a : a)
+							: SCAN_NO_ECHO;
+		}
+		TEST_CHECK("S5-U10a", scan_profile(mm, &r) && r.width_mm > 0 && r.width_mm < 300,
+			   "box ahead, open floor: profiled, narrow");
+		TEST_CHECK("S5-U10b", r.side == OBS_SIDE_LEFT && r.half_right_mm > r.half_left_mm,
+			   "it reaches further right: go left");
+		/* a flat wall across the whole sweep */
+		for (k = 0; k < SCAN_STEPS; k++) {
+			a = SCAN_STEP_DEG10_OF(k);
+			mm[k] = (250 * 1000) / scan_cos_pm((a < 0) ? -a : a);
+		}
+		TEST_CHECK("S5-U10c", scan_profile(mm, &r) && r.width_mm > 0 && !r.out_left && !r.out_right,
+			   "a flat face across the sweep: the 3 cm band ends where it angles away (their method)");
+		mm[SCAN_STEP_CENTRE] = SCAN_NO_ECHO;
+		TEST_CHECK("S5-U10d", !scan_profile(mm, &r), "no centre echo -> no profile");
 	}
 
 	/* INT-03 (IF-07): a dashboard command reaches Mission. */

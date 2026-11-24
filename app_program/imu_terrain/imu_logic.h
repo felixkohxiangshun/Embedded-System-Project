@@ -43,15 +43,23 @@
  *	         is kept in residual_um (a measure of the pitch error).
  *
  *	Lift (2026-11-17, replaces the IMU collision / SHOCK detection, which
- *	the requirement dropped): at the end of the demo the car is lifted AND
- *	turned upside down, at any speed.  Upside down, gravity points the other
- *	way along the up axis, so 'up' takes the opposite sign to its rest
- *	value.  Beyond LIFT_INV_MG on the wrong side for LIFT_CONFIRM_SAMPLES in
- *	a row is LIFTED: reported once (Mission stops the motors); any hump
- *	under way is given up, and nothing is measured until the car has been
- *	the right way up for LIFT_CLEAR_SAMPLES.  A hump or a knock never
- *	reverses gravity for 100 ms.  Works before calibration too (the rest
- *	vector then defaults to 1 g up).
+ *	the requirement dropped): the car is LIFTED when it is picked up, or
+ *	when it is turned upside down.  Either is reported once (Mission stops
+ *	the motors); any hump under way is given up, and nothing is measured
+ *	until the car has been the right way up for LIFT_CLEAR_SAMPLES.  Works
+ *	before calibration too (the rest vector then defaults to 1 g up).
+ *	  picked up (2026-11-24): lifting the car accelerates it upwards, so
+ *	    'up' rises above its rest value while the car is still on its way
+ *	    up.  The rise is summed into an upward speed (rise, mg x samples)
+ *	    that slowly leaks away (LIFT_RISE_TAU), and LIFTED once it reaches
+ *	    LIFT_RISE_MGS.  A hump or a bump pushes the car up and straight back
+ *	    down, so the sum goes up and down again; a knock is a sample or two,
+ *	    and each sample adds at most LIFT_RISE_CLAMP_MG.  On the 2026-11-01
+ *	    hump run the sum never passed 1248 (0.12 m/s); a hand lift reaches
+ *	    about 0.4 to 0.6 m/s (0.3 g upwards is caught in about 0.2 s).
+ *	  upside down: gravity points the other way along the up axis, so
+ *	    'up' takes the opposite sign to its rest value; beyond LIFT_INV_MG
+ *	    on the wrong side for LIFT_CONFIRM_SAMPLES in a row.
  *
  *	*** Every constant marked [CAL] is a placeholder until measured on the car.
  */
@@ -149,6 +157,12 @@
 #define LIFT_CONFIRM_SAMPLES	10	/* 100 ms upside down = lifted */
 #define LIFT_CLEAR_SAMPLES	50	/* 500 ms right way up = on the floor again */
 #define LIFT_UPRIGHT_MG		300	/* 'up' within this of rest = right way up */
+/* Picked up: upward speed from the rise of 'up' above rest.  1 mg for one
+   10 ms sample is 0.098 mm/s, so 4000 is about 0.39 m/s. [CAL] */
+#define LIFT_RISE_MGS		4000	/* mg x samples: lifted */
+#define LIFT_RISE_TAU		25	/* leak, samples (0.25 s): an offset of up to
+					   LIFT_RISE_MGS / 25 = 160 mg never trips it */
+#define LIFT_RISE_CLAMP_MG	600	/* most one sample may add (knocks) */
 
 /* Accelerometer sample in car axes, mg */
 typedef struct {
@@ -210,6 +224,7 @@ typedef struct {
 
 	/* lift */
 	INT	inv_cnt;		/* consecutive samples upside down */
+	INT	rise;			/* upward speed, mg x samples (leaky sum) */
 	INT	up_cnt;			/* LIFTED: consecutive samples right way up */
 
 	/* results */

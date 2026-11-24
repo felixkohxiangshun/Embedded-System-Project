@@ -122,23 +122,6 @@ bc_slicer_step (bc_slicer_t * p_slicer,
     return (b_edge);
 }
 
-int32_t
-bc_slicer_get_threshold (bc_slicer_t const * p_slicer)
-{
-    int32_t threshold = 0;
-
-    if (NULL != p_slicer)
-    {
-        threshold = (p_slicer->last_val + p_slicer->cand_val) / 2;
-    }
-    else
-    {
-        /* NULL pointer: report 0. */
-    }
-
-    return (threshold);
-}
-
 /*!
  * @brief One sample while waiting for a rise (the last extreme was a valley).
  *

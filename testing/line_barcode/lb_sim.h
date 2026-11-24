@@ -108,7 +108,6 @@ typedef struct
     uint32_t ticks_total;
     uint32_t ticks_coast;
     uint32_t ticks_sweep;
-    uint32_t recoveries;        /* times normal tracking resumed after a loss */
     bool     b_timeout;         /* TIMEOUT flag was raised (Mission FAULT) */
     bool     b_off_track;       /* car left the line by more than 80 mm */
     bool     b_finished;        /* the end of the track was reached */

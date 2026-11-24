@@ -284,6 +284,28 @@ EXPORT void imu_terrain_test(void)
 	th_calibrate(&l);
 	o = th_drive(&l, &h20, 0, 1000, -1, 0, 0, -1);
 	TEST_CHECK("S3-U05d", o.dones == 1 && o.lifts == 0, "a hump is never a lift");
+	/* S3-U15: picked up (2026-11-24): upward speed, not only upside down */
+	{
+		INT j;
+
+		imu_logic_init(&l);
+		th_calibrate(&l);
+		k = th_hold(&l, 0, 0, 1300, 10);
+		TEST_CHECK("S3-U15a", k == 0 && l.state != IMU_LIFTED, "0.3 g up for 0.1 s: not yet");
+		k = th_hold(&l, 0, 0, 1300, 15);
+		TEST_CHECK("S3-U15b", k == 1 && l.state == IMU_LIFTED,
+			   "0.3 g up for 0.25 s (about 0.4 m/s): LIFTED");
+		th_hold(&l, 0, 0, 1000, LIFT_CLEAR_SAMPLES);
+		k = th_hold(&l, 0, 0, 4000, 2) + th_hold(&l, 0, 0, 1000, 50);
+		TEST_CHECK("S3-U15c", k == 0 && l.state != IMU_LIFTED, "a 3 g vertical knock (20 ms) is not a lift");
+		k = th_hold(&l, 0, 0, 1060, 300);
+		TEST_CHECK("S3-U15d", k == 0, "60 mg above rest for 3 s (drift, a ramp) is not a lift");
+		k = 0;
+		for (j = 0; j < 40; j++) {
+			k += th_hold(&l, 0, 0, 1400, 3) + th_hold(&l, 0, 0, 600, 3);
+		}
+		TEST_CHECK("S3-U15e", k == 0, "bouncing +-0.4 g at 17 Hz (a rough floor) is not a lift");
+	}
 
 	/* S3-U06: fault and recovery (FR-19) */
 	imu_fault(&l);

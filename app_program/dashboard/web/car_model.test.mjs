@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { decodeTelemetry, decodeDebug, decodeHeartbeat, seqGap, driveButtons, encodeCommand } from './car_model.mjs';
+import { decodeTelemetry, decodeDebug, decodeHeartbeat, driveButtons, encodeCommand } from './car_model.mjs';
 
 // Same LSB-first packer as protocol_bits.c, to build test frames.
 function pack(fields, bytes) {
@@ -40,10 +40,10 @@ test('telemetry: negative speed and wrong length', () => {
   assert.throws(() => decodeTelemetry(new Uint8Array(10)));
 });
 
-test('debug: signed fields and counters round-trip, 24 bytes', () => {
+test('debug: signed fields and counters round-trip, 17 bytes', () => {
   const frame = pack([[200, 255], [600, 1023], [480, 1023], [-120 + 512, 1023], [-700 + 1024, 2047],
     [2, 3], [60, 255], [1, 255], [3, 255], [1, 31], [289, 4095], [1, 7], [6, 15], [30, 63],
-    [3, 7], [1200, 4095], [900, 4095], [250, 4095], [700, 4095], [0, 4095], [2, 3], [3, 7], [480, 4095], [2, 15], [1, 3]], 24);
+    [3, 7], [2, 3], [3, 7], [310, 1023], [180, 1023], [1, 3]], 17);
   const g = decodeDebug(frame);
   assert.deepEqual([g.darkC, g.darkR, g.err, g.steer], [600, 480, -120, -700]);
   assert.equal(g.modeName, 'SWEEP');
@@ -53,19 +53,42 @@ test('debug: signed fields and counters round-trip, 24 bytes', () => {
   assert.equal(g.bcResult, 'SPEED (speed changed)');
   assert.equal(g.bcCount, 30);
   assert.equal(g.scanStateName, 'MEASURE');
-  assert.deepEqual(g.scanMm, [1200, 900, 250, 700, null]);
   assert.equal(g.scanSideName, 'go RIGHT');
   assert.equal(g.bcExitName, 'distance limit');
-  assert.equal(g.echoRiseUs, 480);
-  assert.equal(g.echoEdges, 2);
+  assert.deepEqual(g.width, { mm: 310, leftMm: 180, rightMm: 130 });
   assert.equal(g.bypResultName, 'stopped on the line');
 });
 
-test('heartbeat and sequence gaps', () => {
+test('imu: signed fields round-trip, 8 bytes', async () => {
+  const { decodeImu } = await import('./car_model.mjs');
+  const frame = pack([[7, 255], [4, 7], [1, 1], [215 + 1024, 2047], [31, 127], [40, 127], [3, 255],
+    [3900 + 4096, 8191]], 8);
+  const m = decodeImu(frame);
+  assert.equal(m.stateName, 'LIFTED');
+  assert.equal(m.calibrated, true);
+  assert.equal(m.leanMm, 21.5);
+  assert.deepEqual([m.lastHumpMm, m.maxHumpMm, m.humps], [31, 40, 3]);
+  assert.equal(m.risePercent, 98);
+  assert.ok(Math.abs(m.riseMps - 0.382) < 0.001);
+  assert.throws(() => decodeImu(new Uint8Array(7)));
+});
+
+test('junction mapping: 3 bytes, 5 bits a turn, round trip and refusals', async () => {
+  const { encodeMap, decodeMap } = await import('./car_model.mjs');
+  const bytes = encodeMap({ uturn: 'z', left: 'L', right: '', straight: 's' });
+  assert.equal(bytes.length, 3);
+  // Z = 25, L = 11, none = 31, S = 18
+  assert.equal(bytes[0] | (bytes[1] << 8) | (bytes[2] << 16), 25 | (11 << 5) | (31 << 10) | (18 << 15));
+  assert.deepEqual(decodeMap(bytes), { uturn: 'Z', left: 'L', right: '', straight: 'S' });
+  assert.throws(() => encodeMap({ uturn: 'A', left: '', right: '', straight: 'A' }));
+  assert.throws(() => encodeMap({ uturn: '7', left: '', right: '', straight: '' }));
+  assert.throws(() => decodeMap(Uint8Array.of(0xff, 0xff, 0xff)));
+  assert.throws(() => decodeMap(Uint8Array.of(1, 2)));
+});
+
+test('heartbeat: the system state', () => {
   assert.equal(decodeHeartbeat(new Uint8Array([1])).stateName, 'IDLE');
-  assert.equal(seqGap(null, 5), 0);
-  assert.equal(seqGap(254, 1), 2);
-  assert.equal(seqGap(9, 10), 0);
+  assert.throws(() => decodeHeartbeat(new Uint8Array(2)));
 });
 
 test('barcode trace: widths in 0.1 ms, bar first', async () => {

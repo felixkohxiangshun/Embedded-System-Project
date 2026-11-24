@@ -11,9 +11,9 @@
  *	              10 ms, removes the board's mounting tilt (measured at rest),
  *	              works out the lifted wheel's height from the roll, reports
  *	              each hump's peak height and the
- *	              tallest of the run, and reports the car being LIFTED (turned
- *	              upside down for 100 ms; Mission then stops the motors at
- *	              the end of the demo).  IMU collision (shock) detection was
+ *	              tallest of the run, and reports the car being LIFTED
+ *	              (picked up: an upward speed of about 0.4 m/s, or turned
+ *	              upside down for 100 ms; Mission then stops the motors).  IMU collision (shock) detection was
  *	              dropped from the requirement (2026-11-17).  A failing I2C
  *	              read is a SENSOR_FAULT that is retried; it never stops the
  *	              car (FR-19).
@@ -58,7 +58,6 @@ IMPORT ID	cyc_imu;
 /* Observable values for the tests */
 IMPORT volatile UW  s3_ticks;
 IMPORT volatile UB  s3_state;		/* IMU_xxx */
-IMPORT volatile UW  s3_i2c_errors;
 IMPORT volatile INT s3_pitch_deg;	/* pitch now, whole degrees */
 IMPORT volatile INT s3_h_um;		/* height of the hump under way, um */
 IMPORT volatile INT s3_residual_um;	/* left over after the last hump (~0 is good) */
@@ -72,6 +71,7 @@ IMPORT volatile INT s3_run_dev[3];	/* largest change from rest this run: fwd, si
 IMPORT volatile BOOL s3_calibrated;	/* mounting tilt measured at rest */
 IMPORT volatile INT s3_rest[3];		/* rest vector fwd, side, up, mg */
 IMPORT volatile UW  s3_humps;		/* humps completed since power-up */
+IMPORT volatile INT s3_rise;		/* lift detector, mg x samples (LIFT_RISE_MGS trips it) */
 #define S3_LOG_MAX		1500	/* 15 s of 10 ms samples, ~13 KB, test builds only */
 #if APP_TEST
 IMPORT volatile BOOL s3_log_on;

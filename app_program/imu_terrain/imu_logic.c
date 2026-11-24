@@ -165,6 +165,7 @@ LOCAL void cal_finish(IMU_LOGIC *l)
 	l->rest.fwd = fwd;
 	l->rest.side = side;
 	l->rest.up = up;
+	l->rise = 0;			/* measured against the new rest */
 	l->s0 = clamp_q15((fwd * Q15_SCALE) / (INT)n);	/* n is 850..1150 here */
 	l->c0 = clamp_q15((INT)((nc * Q15_SCALE) / n));
 	l->t0 = roll_tan(side, fwd, up);
@@ -575,6 +576,7 @@ EXPORT void imu_logic_init(IMU_LOGIC *l)
 	l->pos_um = 0;
 	l->last_mm = 0;
 	l->inv_cnt = 0;
+	l->rise = 0;
 	l->up_cnt = 0;
 	l->height_mm = 0;
 	l->max_height_mm = 0;
@@ -591,6 +593,7 @@ EXPORT void imu_fault(IMU_LOGIC *l)
 	hump_give_up(l);
 	l->state = IMU_SENSOR_FAULT;
 	l->inv_cnt = 0;
+	l->rise = 0;
 	l->up_cnt = 0;
 }
 
@@ -606,6 +609,7 @@ EXPORT void imu_recovered(IMU_LOGIC *l)
 	prof_zero(l);
 	hump_to_flat(l, 0);
 	l->inv_cnt = 0;
+	l->rise = 0;
 	l->up_cnt = 0;
 	l->state = l->calibrated ? IMU_MONITORING : IMU_CALIBRATING;
 }
@@ -614,6 +618,20 @@ EXPORT void imu_recovered(IMU_LOGIC *l)
 LOCAL BOOL upside_down(const IMU_LOGIC *l, const IMU_VEC *a)
 {
 	return (l->rest.up >= 0) ? (a->up < -LIFT_INV_MG) : (a->up > LIFT_INV_MG);
+}
+
+/* This sample's push upwards ('up' above rest, the right way up), mg,
+   at most LIFT_RISE_CLAMP_MG either way */
+LOCAL INT rise_step(const IMU_LOGIC *l, const IMU_VEC *a)
+{
+	INT d = (l->rest.up >= 0) ? (a->up - l->rest.up) : (l->rest.up - a->up);
+
+	if (d > LIFT_RISE_CLAMP_MG) {
+		d = LIFT_RISE_CLAMP_MG;
+	} else if (d < -LIFT_RISE_CLAMP_MG) {
+		d = -LIFT_RISE_CLAMP_MG;
+	}
+	return d;
 }
 
 EXPORT INT imu_feed(IMU_LOGIC *l, const IMU_VEC *a, INT ds_um, BOOL still, BOOL allowed)
@@ -636,15 +654,19 @@ EXPORT INT imu_feed(IMU_LOGIC *l, const IMU_VEC *a, INT ds_um, BOOL still, BOOL 
 		return IMU_EV_NONE;
 	}
 	if (upside_down(l, a)) {
-		if (++l->inv_cnt >= LIFT_CONFIRM_SAMPLES) {
-			hump_give_up(l);		/* not a hump: it was picked up */
-			cal_reset(l);
-			l->state = IMU_LIFTED;
-			l->up_cnt = 0;
-			return IMU_EV_LIFTED;
-		}
+		l->inv_cnt++;
 	} else {
 		l->inv_cnt = 0;
+	}
+	l->rise += rise_step(l, a) - l->rise / LIFT_RISE_TAU;
+	if (l->inv_cnt >= LIFT_CONFIRM_SAMPLES || l->rise >= LIFT_RISE_MGS) {
+		hump_give_up(l);		/* not a hump: it was picked up */
+		cal_reset(l);
+		l->state = IMU_LIFTED;
+		l->up_cnt = 0;
+		l->inv_cnt = 0;
+		l->rise = 0;
+		return IMU_EV_LIFTED;
 	}
 
 	if (l->state == IMU_HUMP_COMPLETE) {

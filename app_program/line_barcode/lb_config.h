@@ -64,17 +64,13 @@
  * build (LB_TEST_CALIBRATE below) prints the right value. */
 #define LB_IR_DARK_IS_HIGH          1
 
-/* Barcode sensor input mode.  Analogue reads the module's AO pin with the ADC,
- * like the line sensors; set LB_BC_WHITE_NOMINAL and LB_BC_BLACK_NOMINAL below.
- * Digital reads its DO pin as a plain GPIO level: set the module's trimmer so
- * that DO flips cleanly between a bar and bare paper (check the module's DO
- * LED).  The level is converted to two fixed
- * dark-scale counts and goes through the same slicer, so everything after
- * the sampler is identical to the analogue mode.
- * 1 = digital (DO on GP28), 0 = analogue (AO on GP28, the current wiring). */
-#define LB_BC_USE_GPIO_LEVEL        1
-
-/* Digital mode: 1 if DO is HIGH over a dark bar, 0 if DO is LOW over a
+/* The barcode sensor is read on its digital output (DO, GP28) as a plain
+ * GPIO level, one bit per sample (NFR-13): set the module's trimmer so that
+ * DO flips cleanly between a bar and bare paper (check the module's DO LED).
+ * The analogue (AO + ADC) mode was removed; the PC simulations still model
+ * an analogue signal through bc_slicer.c.
+ *
+ * 1 if DO is HIGH over a dark bar, 0 if DO is LOW over a
  * dark bar.  [CAL] Typical TCRT5000 / LM393 modules pull DO LOW over a
  * reflective (white) surface and release it HIGH over black, so 1 is the
  * usual setting; verify on the car.  The two counts below stand for "bar"
@@ -83,7 +79,7 @@
 #define LB_BC_GPIO_DARK_COUNT       LB_ADC_FROM12(3600)
 #define LB_BC_GPIO_LIGHT_COUNT      LB_ADC_FROM12(500)
 
-/* Digital mode: a DO change counts only once the level has held this many
+/* A DO change counts only once the level has held this many
  * microseconds (comparator chatter is shorter).  Narrow elements at
  * driving speed were measured at 1.3 to 5 ms, so this must stay far below
  * that.  [CAL]  (2 ms was tried on 2026-11-09 against chatter at the slow
@@ -140,43 +136,16 @@
  * time in line_task.c). */
 #define LB_STEER_MAX                1000
 
-/* Position (-1000 centre sensor .. 0 right sensor) at which the line is
- * exactly where we want it: midway between the two sensors. */
-#define LB_LINE_TARGET              (-500)
+/* The line runs BETWEEN the two sensors, which both normally see white
+ * ("straddle", 2026-11-09; the edge mode with each sensor half on the line
+ * was hard to set up with the sensors pointing straight down and has been
+ * removed).  A sensor that sees black means the line has drifted under it,
+ * so the car steers toward that side to put the line back between them:
+ * err = (right - centre) / 2, -500 (centre black, steer left) .. +500
+ * (right black, steer right); both white or both black (a junction) = 0,
+ * straight on.  The sensors must be further apart than the 18 mm line. */
 
-/* Edge mode error formula.
- * 1 = difference (2026-11-09): err = (right - centre) / 2, -500..+500.  A
- *     sensor that sees only a little of the line asks for only a little
- *     steering.  The share formula below jumped to nearly full scale as soon
- *     as one sensor was on white (centre 20, right 350 gave err +450, steer
- *     +700), which made the car zigzag when the sensors are further apart
- *     than the line.
- * 0 = share: err from centre / (centre + right) against LB_LINE_TARGET;
- *     independent of ink strength, but all-or-nothing with one sensor
- *     white. */
-#ifndef LB_LINE_ERR_DIFF
-#define LB_LINE_ERR_DIFF            1
-#endif
-/* 1 = straddle mode (2026-11-09): the line runs BETWEEN the two sensors and
- * both normally see white.  A sensor that sees black means the line has
- * drifted under it, so the car steers toward that side to put the line
- * back between them:  err = (right - centre) / 2,  -500 (centre black,
- * steer left) .. +500 (right black, steer right); both white or both black
- * (a junction) = 0, straight on.  Both white is normal here, so the line is
- * never reported lost and there is no line-lost fault.  The sensors must be
- * further apart than the 18 mm line.
- * 0 = edge mode: each sensor half on the line, steered on the share of
- * darkness each one sees (LB_LINE_TARGET). */
-/* 2026-11-09: 1 -> 0 -> 1.  Edge mode needs each sensor half on the line,
- * which is hard to set up with the sensors pointing straight down.  Known
- * gap: straddle mode cannot yet reacquire the line after an obstacle bypass
- * (white is "on the line", so Mission's LINE_REACQUIRE would think the line
- * is found at once); fix that before obstacle avoidance is switched on. */
-#ifndef LB_LINE_STRADDLE
-#define LB_LINE_STRADDLE            1
-#endif
-
-/* Straddle mode: getting the line back after it slid out past a sensor.
+/* Getting the line back after it slid out past a sensor.
  * With both sensors white the car cannot tell "line centred" from "line
  * gone out to one side".  But the line (18 mm) is wider than the spot
  * (6 mm), so it can only cross a sensor completely by covering it fully on
@@ -217,71 +186,29 @@
  * starts to wobble, back off 30 percent, then add KD to damp the wobble. */
 #define LB_GAIN_SCALE               256
 #ifndef LB_KP
-#if (LB_LINE_STRADDLE != 0)
 #define LB_KP                       400
-#else
-#define LB_KP                       600     /* 400 with the share error */
-#endif
 #endif
 #ifndef LB_KD
-#if (LB_LINE_STRADDLE != 0)
 #define LB_KD                       100
-#else
-#define LB_KD                       300
-#endif
 #endif
 
-/* Straddle mode gains (KP 400, KD 100, slew 40, LB_STRADDLE_SEEK_ERR 150),
- * 2026-11-09: tuned in the simulator at 60 mm/s with sluggish motors
- * (lag 150 ms, delay 50 ms) for a smooth drive.  Against KP 600 / KD 300 /
- * slew 100 / seek 300 the steering moves about a fifth as much on bends,
- * with a third of the left-right reversals, and a 100 mm radius bend is
- * still followed (KP 300 or slew 30 lose it). */
+/* Gains (KP 400, KD 100, slew 40, LB_STRADDLE_SEEK_ERR 150), 2026-11-09:
+ * tuned in the simulator at 60 mm/s with sluggish motors (lag 150 ms,
+ * delay 50 ms) for a smooth drive.  Against KP 600 / KD 300 / slew 100 /
+ * seek 300 the steering moves about a fifth as much on bends, with a third
+ * of the left-right reversals, and a 100 mm radius bend is still followed
+ * (KP 300 or slew 30 lose it). */
 
 /* Largest change of the steering output per tick.  Stops the wheels being
  * jerked when the error jumps (dirt, a junction edge, re-acquiring). */
 #ifndef LB_STEER_SLEW_MAX
-#if (LB_LINE_STRADDLE != 0)
 #define LB_STEER_SLEW_MAX           40
-#else
-#define LB_STEER_SLEW_MAX           100
-#endif
 #endif
 
 /* The steering output is also kept as a slow average ("steer memory"):
  * mem = mem + (steer - mem) / this.  It is the value that is held while
  * the line is missing, so one noisy tick cannot send the car off. */
 #define LB_STEER_MEM_DIV            4
-
-/* "Line mass" = centre darkness + right darkness.  With the two sensors
- * straddling the line it stays near LB_MASS_NOMINAL wherever the line is
- * between them, so it directly measures how strongly the line shows.
- * [CAL] Drive over the plain line and log the mass, then set NOMINAL to the
- * LOWEST value you see there (not the average). */
-#define LB_MASS_NOMINAL             1000
-
-/* The line is "seen" when the mass is at least SEEN_ON and stays seen until
- * it falls below SEEN_OFF (hysteresis stops flicker at the limit).  These
- * are deliberately low (about 14 and 10 percent of nominal) so a faded
- * line is still followed.  They must stay well above the sensor noise on
- * white paper, which you measure in calibration step C2. */
-#define LB_MASS_SEEN_ON             140
-#define LB_MASS_SEEN_OFF            100
-
-/* FADED mode: entered when the averaged mass falls below FADED_ON, left when
- * it rises above FADED_OFF (60 and 70 percent of nominal).  The mass is
- * averaged as avg = avg + (mass - avg) / LB_MASS_AVG_DIV. */
-#define LB_MASS_FADED_ON            600
-#define LB_MASS_FADED_OFF           700
-#define LB_MASS_AVG_DIV             2
-
-/* In FADED mode the position estimate is noisier, so steer more gently:
- * the gains are scaled by these percentages, the output is limited, and the
- * error is smoothed with err = err + (new - err) / LB_FADED_ERR_IIR_DIV. */
-#define LB_FADED_KP_PCT             100
-#define LB_FADED_KD_PCT             60
-#define LB_FADED_STEER_MAX          900
-#define LB_FADED_ERR_IIR_DIV        2
 
 /* A single missing sample is bridged (the last steering is held); the line
  * is declared vanished after this many consecutive ticks without it. */
@@ -340,13 +267,9 @@
 /* ------------------------------------------------------------------------
  * 5. Junction detection (line_ctrl.c)
  * ---------------------------------------------------------------------
- * Junction: both line sensors fully black, as when a bar crosses the line.
- * Only valid if the sensor spacing is at least the line width; otherwise
- * both sensors are black on a plain line.  Set LB_JUNCTION_ENABLE to 0 then.
- * While a junction is under the car the steering is held straight. */
-#define LB_JUNCTION_ENABLE          1
+ * Both line sensors fully black, as when a bar crosses the line: the
+ * straddle controller then steers straight on instead of to one side. */
 #define LB_JUNCTION_DARK_MIN        850
-#define LB_JUNCTION_TICKS           3u
 
 /* Junction detector (line_junction_step in line_ctrl.c).  Both line sensors
  * must first stop being dark together, then both read at least DARK_MIN for
@@ -367,17 +290,11 @@
  * room light shifts the whole signal, and when the ink is weak. */
 
 /* Nominal paper and ink levels of the barcode sensor (dark scale, counts).
- * Only their difference matters: it is the full swing of a bar.  In digital
- * mode the sensor can only report the two fixed counts above, so the
- * nominal levels are taken from them.  In analogue mode they are measured
- * values.  [CAL] */
-#if (LB_BC_USE_GPIO_LEVEL != 0)
+ * Only their difference matters: it is the full swing of a bar.  DO can only
+ * report the two fixed counts above, so the nominal levels are taken from
+ * them. */
 #define LB_BC_WHITE_NOMINAL         LB_BC_GPIO_LIGHT_COUNT
 #define LB_BC_BLACK_NOMINAL         LB_BC_GPIO_DARK_COUNT
-#else
-#define LB_BC_WHITE_NOMINAL         LB_ADC_FROM12(400)
-#define LB_BC_BLACK_NOMINAL         LB_ADC_FROM12(3200)
-#endif
 
 /* Smallest signal movement that counts as an edge, in percent of the
  * nominal swing (about 8 percent of the swing).  It
@@ -494,25 +411,8 @@
 /* ------------------------------------------------------------------------
  * Compile-time checks of the relations the algorithms rely on.
  * --------------------------------------------------------------------- */
-#if (LB_MASS_SEEN_OFF >= LB_MASS_SEEN_ON)
-#error "LB_MASS_SEEN_OFF must be below LB_MASS_SEEN_ON (hysteresis)"
-#endif
-
-#if (LB_MASS_FADED_ON >= LB_MASS_FADED_OFF)
-#error "LB_MASS_FADED_ON must be below LB_MASS_FADED_OFF (hysteresis)"
-#endif
-
-#if (LB_MASS_SEEN_ON >= LB_MASS_FADED_ON)
-#error "LB_MASS_SEEN_ON must be below LB_MASS_FADED_ON"
-#endif
-
-#if ((LB_BC_USE_GPIO_LEVEL != 0) \
-     && (LB_BC_GPIO_DARK_COUNT <= LB_BC_GPIO_LIGHT_COUNT))
+#if (LB_BC_GPIO_DARK_COUNT <= LB_BC_GPIO_LIGHT_COUNT)
 #error "LB_BC_GPIO_DARK_COUNT must be larger than LB_BC_GPIO_LIGHT_COUNT"
-#endif
-
-#if (LB_MASS_FADED_OFF > LB_MASS_NOMINAL)
-#error "LB_MASS_FADED_OFF must not exceed LB_MASS_NOMINAL"
 #endif
 
 #if (LB_BC_MAX_EDGES < 30u)
@@ -529,10 +429,6 @@
 
 #if (LB_SWEEP_STEER_CEIL > LB_STEER_MAX)
 #error "LB_SWEEP_STEER_CEIL must not exceed LB_STEER_MAX"
-#endif
-
-#if (LB_FADED_STEER_MAX > LB_STEER_MAX)
-#error "LB_FADED_STEER_MAX must not exceed LB_STEER_MAX"
 #endif
 
 #if (LB_BC_SETTLE_SAMPLES >= LB_BC_HISTORY_SAMPLES)

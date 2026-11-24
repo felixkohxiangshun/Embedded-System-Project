@@ -49,13 +49,13 @@ typedef struct {
 #define BC_FIRST		4	/* a code starts: second dark bar close behind the first */
 typedef struct {
 	UB	kind;			/* BC_xxx */
-	UB	cmd;			/* 'A'..'D' when kind == BC_OK */
+	UB	cmd;			/* 'A'..'Z' when kind == BC_OK */
 } MSG_BCCMD;
 
 /* IF-04  IMU -> Mission : MBF_TERRAIN ----------------------------------- */
 #define TERR_HUMP_START		1	/* Z rose above the hump threshold */
 #define TERR_HUMP_DONE		2	/* Z back at baseline, height valid */
-#define TERR_LIFTED		3	/* turned upside down: end of the run, stop
+#define TERR_LIFTED		3	/* picked up or turned upside down: stop
 					   the motors (replaced TERR_SHOCK, IMU
 					   collision detection, 2026-11-17) */
 #define TERR_FAULT		4	/* I2C read failed (terrain data lost) */
@@ -79,11 +79,7 @@ typedef struct {
 	UB	kind;			/* OBS_xxx */
 	INT	side;			/* OBS_SIDE_xxx, chosen bypass side */
 	INT	dist_mm;		/* distance when first seen */
-	INT	width_mm;		/* estimated obstacle width */
-	INT	clear_mm;		/* clearance on the chosen side */
-	INT	extent;			/* how far out the obstacle reached on the
-					   chosen side: 0 centre beam only, 1 the
-					   22.5 deg beam, 2 the 45 deg beam too */
+	INT	width_mm;		/* measured obstacle width */
 	INT	reach_mm;		/* how far sideways it was seen on the chosen
 					   side, mm (0 = only straight ahead): sizes
 					   the 45 deg diagonal */
@@ -91,14 +87,14 @@ typedef struct {
 
 /* IF-06  Mission -> Scan : MBF_SCANCMD ---------------------------------- */
 #define SCANCMD_ARM		1	/* car is driving: ping ahead */
-#define SCANCMD_DISARM		2	/* stop pinging (idle, e-stop, ...) */
+#define SCANCMD_DISARM		2	/* stop pinging (idle, stop, fault) */
 #define SCANCMD_PROFILE		3	/* car has stopped: sweep and measure */
 #define SCANCMD_TRACK		4	/* aim the servo at arg degrees (- left,
 					   + right, -70..+70) and post an OBS_RANGE
-					   every ping; send again to re-aim */
+					   every ping (the bypass straight leg) */
 typedef struct {
 	UB	cmd;			/* SCANCMD_xxx */
-	INT	arg;			/* SCANCMD_TRACK: servo side */
+	INT	arg;			/* SCANCMD_TRACK: servo angle, deg */
 } MSG_SCANCMD;
 
 /* IF-07  Dashboard -> Mission : MBF_MQTTCMD ----------------------------- */
@@ -106,8 +102,12 @@ typedef struct {
    commands.  On MQTT a command is one byte (dash_parse_cmd()). */
 #define MQTTCMD_START		1	/* dashboard Start: like BTN_START from IDLE */
 #define MQTTCMD_STOP		2	/* dashboard Stop: like BTN_START while running */
+#define MQTTCMD_MAP		3	/* junction mapping (dash_parse_map()): the
+					   letter for each turn, in letters[] */
+#define MQTTCMD_TURNS		4	/* letters[]: U-turn, left, right, straight */
 typedef struct {
 	UB	cmd;			/* MQTTCMD_xxx */
+	UB	letters[MQTTCMD_TURNS];	/* MQTTCMD_MAP: 'A'..'Z', 0 = no letter */
 } MSG_MQTTCMD;
 
 /* IF-08  Mission -> Motor : MBF_NAV ------------------------------------- */
@@ -115,13 +115,11 @@ typedef struct {
 					   Mission is in a line-following state) */
 #define NAV_SLOW		2	/* drive at the slow speed */
 #define NAV_TURN		3	/* arg = degrees, + = right, - = left */
-#define NAV_BYPASS		4	/* arg = side (OBS_SIDE_xxx), arg2 = width mm */
+/* 4 was NAV_BYPASS (Motor's own bypass path); Mission now sends the legs */
 #define NAV_RESUME		5	/* back to normal speed */
 #define NAV_MOVE		6	/* arg = mm straight, - = backwards; arg2 =
 					   speed mm/s (0 = SPEED_MOVE_MMPS); ends
 					   in STOPPED like a turn */
-#define NAV_SPEED		7	/* arg = driving speed mm/s (obstacle
-					   tracking; NAV_RESUME restores normal) */
 typedef struct {
 	UB	type;			/* NAV_xxx */
 	INT	arg;
@@ -140,7 +138,7 @@ typedef struct {
 	INT	obs_dist_mm;
 	UB	last_barcode;		/* 'A'..'Z' or 0 */
 	INT	hump_max_mm;
-	UB	lifted;			/* 1 = stopped because lifted upside down */
+	UB	lifted;			/* 1 = stopped because picked up / upside down */
 	UB	fault_flags;		/* FAULT_xxx */
 	UW	uptime_ms;
 } MSG_TELEM;
@@ -177,7 +175,7 @@ typedef struct {
 #define MOT_STOPPED		0
 #define MOT_DRIVING		1
 #define MOT_TURNING		2
-#define MOT_BYPASS		3
+/* 3 was MOT_BYPASS; the numbers are kept for the telemetry frame */
 #define MOT_ENCODER_FAULT	4
 
 #define FAULT_IMU		0x01
@@ -208,9 +206,7 @@ typedef struct {
 	UB	stored_char;		/* letter kept for the next junction, or 0 */
 	INT	hump_mm;
 	INT	hump_max_mm;
-	UB	lifted;			/* 1 = stopped because lifted upside down */
-	INT	line_hint;		/* -1 / +1: side the line is on when line
-					   following restarts after a bypass, 0 = none */
+	UB	lifted;			/* 1 = stopped because picked up / upside down */
 	INT	obs_dist_mm;
 	INT	obs_width_mm;
 	INT	obs_side;

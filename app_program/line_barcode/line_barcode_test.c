@@ -160,11 +160,6 @@ line_barcode_test (void)
     dark_b = ir_driver_get_dark(IR_CHANNEL_BARCODE);
     b_alive = ((dark_c > 20) && (dark_c < (LB_ADC_MAX_COUNT - 20)))
               || ((dark_r > 20) && (dark_r < (LB_ADC_MAX_COUNT - 20)));
-#if (LB_BC_USE_GPIO_LEVEL == 0)
-    /* Only in analogue mode: the digital level is always one of the two
-     * fixed counts, so including it would make this check always pass. */
-    b_alive = b_alive || ((dark_b > 20) && (dark_b < (LB_ADC_MAX_COUNT - 20)));
-#endif
     TEST_CHECK("S2-T04", b_alive, "sensor readings are not stuck at 0 or full scale");
     tm_printf((UB*)"       (dark scale now: centre %d, right %d, barcode %d)\n",
               (INT)dark_c, (INT)dark_r, (INT)dark_b);
@@ -289,19 +284,12 @@ run_guided_calibration (void)
               (INT)ir_calib_probe_mean(&white_r));
     tm_printf((UB*)"  #define LB_BLACK_RIGHT  %d\n",
               (INT)ir_calib_probe_mean(&line_r));
-#if (LB_BC_USE_GPIO_LEVEL == 0)
-    tm_printf((UB*)"  #define LB_BC_WHITE_NOMINAL %d\n",
-              (INT)ir_calib_probe_mean(&white_b));
-    tm_printf((UB*)"  #define LB_BC_BLACK_NOMINAL %d\n",
-              (INT)ir_calib_probe_mean(&ink_b));
-#else
     /* The barcode sensor is digital: nothing to paste.  The mean shows
      * which of the two fixed counts the DO level maps to. */
     tm_printf((UB*)"  (barcode sensor is digital: no constants to paste;\n");
     tm_printf((UB*)"   white should read %d and ink %d. If they are\n",
               (INT)LB_BC_GPIO_LIGHT_COUNT, (INT)LB_BC_GPIO_DARK_COUNT);
     tm_printf((UB*)"   swapped, flip LB_BC_GPIO_DARK_IS_HIGH.)\n");
-#endif
 
     if ((ir_calib_probe_spread(&line_c) > CAL_NOISE_MAX)
         || (ir_calib_probe_spread(&line_r) > CAL_NOISE_MAX))

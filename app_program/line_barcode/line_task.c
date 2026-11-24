@@ -54,7 +54,6 @@ static void     run_tick(line_run_t * p_run);
 static int32_t  elapsed_ms(line_run_t * p_run);
 static bool     mission_follows_line(bool b_previous);
 static uint32_t read_distance(uint32_t previous_mm);
-static int32_t  read_line_hint(void);
 static void     post_steer(line_run_t * p_run,
                            line_recov_out_t const * p_recov,
                            int32_t dark_centre,
@@ -133,10 +132,6 @@ run_tick (line_run_t * p_run)
     if (b_follow && (!p_run->b_following))
     {
         line_ctrl_restart(&p_run->ctrl, 0);
-
-        /* After an obstacle bypass Mission says which side the line is on:
-         * if the car is on white, seek that way instead of driving on. */
-        line_ctrl_seek(&p_run->ctrl, read_line_hint());
         line_recov_init(&p_run->recov);
         line_junction_init(&p_run->junction);
         p_run->b_jct_pending = false;
@@ -159,7 +154,6 @@ run_tick (line_run_t * p_run)
                               p_run->dist_mm))
     {
         p_run->b_jct_pending = true;
-        g_lb_stats.line_junctions++;
     }
     else
     {
@@ -272,29 +266,6 @@ mission_follows_line (bool b_previous)
  *
  * @return Distance in millimetres.
  */
-/*!
- * @brief The side the line is on, from Mission after an obstacle bypass
- *        (app_state.line_hint: -1 left, +1 right, 0 none).
- */
-static int32_t
-read_line_hint (void)
-{
-    int32_t hint = 0;
-
-    if (E_OK == state_lock(TMO_POL))
-    {
-        /* Cast: line_hint is the kernel's INT, -1 to +1. */
-        hint = (int32_t)app_state.line_hint;
-        state_unlock();
-    }
-    else
-    {
-        /* Lock busy: no hint. */
-    }
-
-    return (hint);
-}
-
 static uint32_t
 read_distance (uint32_t previous_mm)
 {
@@ -387,9 +358,6 @@ update_stats (line_ctrl_out_t const * p_ctrl,
     /* Casts: the enum value is 0 to 2 and dt_ms is 1 to LB_DT_MAX_MS, so both
      * are non-negative and fit uint32_t. */
     g_lb_stats.line_mode        = (uint32_t)p_recov->mode;
-    g_lb_stats.line_state       = (LINE_RECOV_TRACK == p_recov->mode)
-                                  ? LB_LINE_STATE_STEERING
-                                  : LB_LINE_STATE_LOST;
 
     if ((uint32_t)dt_ms > g_lb_stats.line_dt_max_ms)
     {
@@ -400,23 +368,6 @@ update_stats (line_ctrl_out_t const * p_ctrl,
         /* Not a new maximum. */
     }
 
-    if (p_recov->b_resumed)
-    {
-        g_lb_stats.line_recoveries++;
-    }
-    else
-    {
-        /* No recovery finished on this tick. */
-    }
-
-    if (0u != (p_recov->flags & LINE_RECOV_F_TIMEOUT))
-    {
-        g_lb_stats.line_timeouts++;
-    }
-    else
-    {
-        /* No timeout on this tick. */
-    }
 
     return;
 }

@@ -534,13 +534,8 @@ test_filter_calib (void)
 
 /* A plain line, and the "one sensor dark" partner reading, in each mode:
  * edge mode sees half the line on both sensors; straddle mode sees white. */
-#if (LB_LINE_STRADDLE != 0)
 #define JCT_PLAIN   50
 #define JCT_LOW     100
-#else
-#define JCT_PLAIN   600
-#define JCT_LOW     500
-#endif
 
 static void
 test_line_junction (void)
@@ -600,23 +595,12 @@ test_line_ctrl (void)
     CHECK("S2-U07c", (out.err > -30) && (out.err < 30),
           "line half way between the sensors -> error about 0");
 
-#if (LB_LINE_STRADDLE == 0) && (LB_LINE_ERR_DIFF != 0)
-    /* The car's own reading (2026-11-09): centre on white, right a third on
-     * the line.  The share formula gave +450 (steer +700) and zigzagged. */
-    line_ctrl_init(&ctrl);
-    line_ctrl_update(&ctrl, 20, 350, &out);
-    CHECK("S2-U07e", (out.err == 165) && out.b_seen,
-          "difference error: a light touch on one sensor asks for little steering");
-#endif
 
     line_ctrl_init(&ctrl);
     for (tick = 0u; tick < 5u; tick++)
     {
         line_ctrl_update(&ctrl, 5, 5, &out);
     }
-#if (LB_LINE_STRADDLE == 0)
-    CHECK("S2-U07d", !out.b_seen, "both sensors on paper -> line not seen");
-#endif
 
     line_ctrl_init(&ctrl);
     line_ctrl_update(&ctrl, 0, 1000, &out);
@@ -641,11 +625,6 @@ test_line_ctrl (void)
         for (t = 0u; t < 6u; t++) { line_ctrl_update(&ctrl, 700, 300, &a); }
         line_ctrl_init(&ctrl);
         for (t = 0u; t < 6u; t++) { line_ctrl_update(&ctrl, 350, 150, &b); }
-#if (LB_LINE_STRADDLE == 0) && (LB_LINE_ERR_DIFF == 0)
-        CHECK("S2-U23", (a.err - b.err <= 5) && (b.err - a.err <= 5)
-                        && b.b_seen && b.b_faded,
-              "half the ink: same position error, flagged as faded");
-#endif
     }
 }
 
@@ -718,7 +697,7 @@ test_line_recov (void)
     {
         line_recov_step(&rec, &in, &out);
     }
-    CHECK("S2-U25b", (LINE_RECOV_TRACK == out.mode) || out.b_resumed,
+    CHECK("S2-U25b", LINE_RECOV_TRACK == out.mode,
           "enough good ticks in a row resume normal tracking");
 
     /* The timeout does not run while Mission is not following the line. */
@@ -761,32 +740,16 @@ test_closed_loop (void)
     cfg.p_segments = g_straight;
     cfg.num_segments = COUNT_OF(g_straight);
     lb_sim_line_run(&cfg, &res);
-#if (LB_LINE_STRADDLE == 0)
-    CHECK("S2-L01", res.b_finished && (res.max_offset_mm < 1.0),
-          "straight line, no disturbance: stays centred");
-#endif
 
     cfg.start_offset_mm = 8.0;
     cfg.start_heading_deg = 5.0;
     lb_sim_line_run(&cfg, &res);
-#if (LB_LINE_STRADDLE == 0)
-    CHECK("S2-L02", res.b_finished && (!res.b_timeout)
-                    && (res.max_offset_mm < 12.0)
-                    && (res.final_offset_mm > -2.0)
-                    && (res.final_offset_mm < 2.0),
-          "start 8 mm off and 5 degrees off: converges, no overshoot");
-#endif
 
     lb_sim_line_defaults(&cfg);
     cfg.p_segments = g_bends;
     cfg.num_segments = COUNT_OF(g_bends);
     cfg.speed_mmps = 120.0;
     lb_sim_line_run(&cfg, &res);
-#if (LB_LINE_STRADDLE == 0)
-    CHECK("S2-L03", res.b_finished && (res.max_offset_mm < 20.0)
-                    && (res.max_lost_ms < 1.0),
-          "two 90 degree bends at 120 mm/s: followed, line never lost");
-#endif
     cfg.speed_mmps = 60.0;
     lb_sim_line_run(&cfg, &res);
     CHECK("S2-L04", res.b_finished && (res.max_offset_mm < 20.0),
@@ -799,10 +762,6 @@ test_closed_loop (void)
     cfg.lag_s = 0.15;
     cfg.delay_ms = 50.0;
     lb_sim_line_run(&cfg, &res);
-#if (LB_LINE_STRADDLE == 0)
-    CHECK("S2-L05", res.b_finished && (res.max_offset_mm < 25.0),
-          "slow motors (lag 150 ms, delay 50 ms): still followed");
-#endif
 
     /* The line suddenly loses ink and the car is pushed sideways. */
     lb_sim_line_defaults(&cfg);
@@ -820,11 +779,6 @@ test_closed_loop (void)
     fade.level = 0.0; fade.length_mm = 100.0; veer.yaw_dps = 4.0;
     veer.length_mm = 140.0;
     lb_sim_line_run(&cfg, &res);
-#if (LB_LINE_STRADDLE == 0)
-    CHECK("S2-R02", res.b_finished && (!res.b_timeout)
-                    && (res.recoveries >= 1u) && (res.max_offset_mm < 40.0),
-          "100 mm without ink + veer: coast, search, line re-acquired");
-#endif
 
     fade.level = 0.0; fade.length_mm = 200.0; veer.yaw_dps = 0.0;
     veer.length_mm = 0.0;
@@ -834,10 +788,6 @@ test_closed_loop (void)
 
     fade.level = 0.0; fade.length_mm = 700.0;
     lb_sim_line_run(&cfg, &res);
-#if (LB_LINE_STRADDLE == 0)
-    CHECK("S2-R04", res.b_timeout && (res.max_lost_ms >= 2900.0),
-          "line gone for good: TIMEOUT reported so Mission can take over");
-#endif
 
     /* Fade inside a bend, at the car's normal 60 mm/s (see S2-L05). */
     lb_sim_line_defaults(&cfg);
@@ -847,14 +797,8 @@ test_closed_loop (void)
     fade.ramp_mm = 30.0;
     cfg.p_fades = &fade; cfg.num_fades = 1;
     lb_sim_line_run(&cfg, &res);
-#if (LB_LINE_STRADDLE == 0)
-    CHECK("S2-R05", res.b_finished && (!res.b_timeout)
-                    && (res.max_offset_mm < 25.0),
-          "ink drops to 30 percent inside a bend: bend is still followed");
-#endif
 }
 
-#if (LB_LINE_STRADDLE != 0)
 /* Straddle mode: the line runs between the sensors, both normally white. */
 static void
 test_straddle (void)
@@ -882,22 +826,6 @@ test_straddle (void)
     b_ok = b_ok && (500 == out.err) && (out.steer > 0);
     CHECK("S2-S01b", b_ok,
           "straddle: centre black -> steer left, right black -> steer right");
-
-    /* after an obstacle bypass Mission says which side the line is on */
-    line_ctrl_init(&ctrl);
-    line_ctrl_restart(&ctrl, 0);
-    line_ctrl_seek(&ctrl, 1);
-    line_ctrl_update(&ctrl, 5, 5, &out);
-    b_ok = (out.err > 0);
-    line_ctrl_init(&ctrl);
-    line_ctrl_seek(&ctrl, -1);
-    line_ctrl_update(&ctrl, 5, 5, &out);
-    b_ok = b_ok && (out.err < 0);
-    line_ctrl_init(&ctrl);
-    line_ctrl_seek(&ctrl, 0);
-    line_ctrl_update(&ctrl, 5, 5, &out);
-    CHECK("S2-S09", b_ok && (0 == out.err),
-          "straddle: told the line is right/left, both white seeks that way; no hint, straight");
 
     line_ctrl_init(&ctrl);
     line_ctrl_update(&ctrl, 1000, 1000, &out);
@@ -944,7 +872,7 @@ test_straddle (void)
             line_ctrl_update(&ctrl, 900, 900, &out);
             b_found = line_junction_step(&jct, 900, 900, mm) || b_found;
         }
-        b_ok = out.b_junction && b_found && (0 == out.err);
+        b_ok = b_found && (0 == out.err);
         line_ctrl_update(&ctrl, 20, 20, &out);
         line_ctrl_update(&ctrl, 20, 20, &out);
         CHECK("S2-S08", b_ok && (0 == ctrl.out_side) && (0 == out.err),
@@ -1030,7 +958,6 @@ test_straddle (void)
 
     return;
 }
-#endif /* LB_LINE_STRADDLE */
 
 int
 main (void)
@@ -1048,9 +975,7 @@ main (void)
     test_line_recov();
     test_optics();
     test_closed_loop();
-#if (LB_LINE_STRADDLE != 0)
     test_straddle();
-#endif
 
     printf("\n[TEST] line_barcode_host SUMMARY %u passed, %u failed\n",
            g_pass, g_fail);

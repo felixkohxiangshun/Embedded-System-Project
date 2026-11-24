@@ -21,7 +21,6 @@
 
 EXPORT volatile UW  s3_ticks;
 EXPORT volatile UB  s3_state;
-EXPORT volatile UW  s3_i2c_errors;
 EXPORT volatile INT s3_pitch_deg;
 EXPORT volatile INT s3_h_um;
 EXPORT volatile INT s3_residual_um;
@@ -34,6 +33,7 @@ EXPORT volatile INT s3_rest[3];
 EXPORT volatile UW  s3_humps;
 EXPORT volatile INT s3_last_mm;
 EXPORT volatile INT s3_max_mm;
+EXPORT volatile INT s3_rise;		/* lift detector: upward speed, mg x samples */
 
 #if APP_TEST
 /* Raw recording for S3_TEST_LOG (test builds only): one line per 10 ms */
@@ -164,6 +164,7 @@ LOCAL void observe(void)
 	s3_run_dev[2] = lg.run_dev[2];
 	s3_last_mm = lg.height_mm;
 	s3_max_mm = lg.max_height_mm;
+	s3_rise = lg.rise;
 }
 
 EXPORT void imu_task(INT stacd, void *exinf)
@@ -184,7 +185,6 @@ EXPORT void imu_task(INT stacd, void *exinf)
 
 	er = imu_hw_open();
 	if (er < E_OK) {
-		s3_i2c_errors++;
 		imu_fault(&lg);
 		post(TERR_FAULT);
 	}
@@ -212,8 +212,6 @@ EXPORT void imu_task(INT stacd, void *exinf)
 					fail_n = 0;
 					imu_recovered(&lg);
 					post(TERR_RECOVERED);
-				} else {
-					s3_i2c_errors++;
 				}
 			}
 			observe();
@@ -223,7 +221,6 @@ EXPORT void imu_task(INT stacd, void *exinf)
 		/* 3. sample */
 		er = imu_read_accel(raw);
 		if (er < E_OK) {
-			s3_i2c_errors++;
 			ds_carry = ds;		/* use this distance with the next sample */
 			if (++fail_n >= IMU_FAULT_READS) {
 				ds_carry = 0;

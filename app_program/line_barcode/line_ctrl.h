@@ -3,22 +3,18 @@
  * @brief Line position estimate and PD steering for the two line sensors.
  *
  * @par
- * The centre and the right IR sensor straddle the line.  The target is the
- * point midway between them, so the sign of the error says which way the
- * line has moved and the car must steer (negative = left, positive = right).
- *
- * @par
- * Why the estimate survives a faded line: the position is the RATIO
- * centre / (centre + right), which does not change when the whole line gets
- * lighter (worn tape, thin print, glare).  Only the sum, called the "line
- * mass", shrinks.  The mass tells how strongly the line shows and drives
- * two decisions: the line is "seen" down to about 10 percent of its nominal
- * mass, and below 60 percent the controller enters FADED mode, in which it
- * steers more gently on a smoothed error.
+ * The black line runs between the centre and the right IR sensor, which
+ * both normally see white.  A sensor that sees black means the line has
+ * drifted under it, so the car steers toward that side to put the line back
+ * between them (negative = left, positive = right).  When a black reading
+ * ends after the sensor was fully over the line, the line may have left on
+ * that side: the controller steers gently that way, and reports the line
+ * lost if no black comes back (see LB_STRADDLE_FULL in lb_config.h).
  *
  * @par
  * What happens when the line is gone altogether is decided by line_recov.c,
  * not here.  This module only reports "not seen" and holds its last output.
+ * Faded ink is handled by the calibration (ir_calib.c), not here.
  *
  * @par
  * Pure arithmetic: no hardware, no kernel calls, unit tested on a PC.
@@ -37,14 +33,10 @@
 typedef struct
 {
     int32_t  prev_err;          /* error of the previous tick */
-    int32_t  err_filt;          /* smoothed error (used in FADED mode) */
+    int32_t  err_filt;          /* last error, held while the line is lost */
     int32_t  steer;             /* last steering output, for slew and hold */
-    int32_t  mass_avg;          /* averaged line mass */
-    uint32_t junction_ticks;    /* consecutive ticks with both sensors dark */
-    bool     b_seen;            /* line visible (with hysteresis) */
-    bool     b_faded;           /* FADED mode (with hysteresis) */
+    bool     b_seen;            /* line visible */
     bool     b_primed;          /* prev_err and err_filt hold real values */
-    /* Straddle mode only (LB_LINE_STRADDLE): */
     int32_t  out_side;          /* -1 / +1: the line may have left past the
                                    centre / right sensor; 0: it is inside */
     int32_t  ep_side;           /* side of the darkest reading so far */
@@ -65,11 +57,8 @@ typedef struct
 typedef struct
 {
     int32_t err;                /* position error, -500 to +500 */
-    int32_t mass;               /* centre darkness + right darkness */
     int32_t steer;              /* steering, -LB_STEER_MAX to +LB_STEER_MAX */
     bool    b_seen;             /* the line is visible */
-    bool    b_faded;            /* the line is weak (FADED mode) */
-    bool    b_junction;         /* a bar crosses the line under the car */
 } line_ctrl_out_t;
 
 /*!
@@ -89,14 +78,6 @@ void line_ctrl_init(line_ctrl_t * p_ctrl);
  * @param[in]     last_steer  Steering that was last sent to Mission.
  */
 void line_ctrl_restart(line_ctrl_t * p_ctrl, int32_t last_steer);
-
-/*!
- * @brief Straddle mode: the line is known to be on this side (-1 left,
- *        +1 right; 0 does nothing), e.g. after an obstacle bypass.  If both
- *        sensors read white the controller seeks that way (as after
- *        losing the line past a sensor) instead of driving straight on.
- */
-void line_ctrl_seek(line_ctrl_t * p_ctrl, int32_t side);
 
 /*!
  * @brief Run one control tick (every LB_LINE_TICK_MS).

@@ -24,8 +24,6 @@
       <span id="broker-state">Connecting…</span>
       <span class="spacer"></span>
       <span>Telemetry <strong id="telem-rate" class="number">—</strong></span>
-      <span>Debug <strong id="debug-rate" class="number">—</strong></span>
-      <span>Lost frames <strong id="lost" class="number">0</strong></span>
     </section>
 
     <div class="car-grid">
@@ -42,6 +40,7 @@
           <div><dt>Heading</dt><dd id="heading">—</dd></div>
           <div><dt>Line seen</dt><dd id="line-seen">—</dd></div>
           <div><dt>Obstacle</dt><dd id="obstacle">—</dd></div>
+          <div><dt>Last obstacle width</dt><dd id="last-width">none yet</dd></div>
           <div><dt>Tallest hump</dt><dd id="hump">—</dd></div>
           <div><dt>Lifted</dt><dd id="lifted">—</dd></div>
           <div><dt>Faults</dt><dd id="faults">—</dd></div>
@@ -63,6 +62,15 @@
           <div><dt>Slow pass ended by</dt><dd id="bc-exit">—</dd></div>
         </dl>
         <pre id="bc-trace" class="bc-trace">Widths (ms) appear after the next capture.</pre>
+        <form id="map-form" class="map-form">
+          <span class="map-title">Junction letters</span>
+          <label>U-turn <input id="map-uturn" maxlength="1" autocomplete="off" spellcheck="false"></label>
+          <label>Left <input id="map-left" maxlength="1" autocomplete="off" spellcheck="false"></label>
+          <label>Right <input id="map-right" maxlength="1" autocomplete="off" spellcheck="false"></label>
+          <label>Straight <input id="map-straight" maxlength="1" autocomplete="off" spellcheck="false"></label>
+          <button id="map-send" type="submit">Send mapping</button>
+          <small id="map-state">A letter not given here also goes straight. Sent retained: the car gets it again whenever it connects.</small>
+        </form>
       </section>
 
       <section class="card">
@@ -70,13 +78,8 @@
         <dl class="kv">
           <div><dt>Ultrasonic now</dt><dd id="scan-ultra">—</dd></div>
           <div><dt>Scan state</dt><dd id="scan-state">—</dd></div>
-          <div><dt>Echo starts after</dt><dd id="echo-rise">—</dd></div>
-          <div><dt>Echo edges per ping</dt><dd id="echo-edges">—</dd></div>
-          <div><dt>Sweep far left</dt><dd id="scan-fl">—</dd></div>
-          <div><dt>Sweep near left</dt><dd id="scan-nl">—</dd></div>
-          <div><dt>Sweep centre</dt><dd id="scan-c">—</dd></div>
-          <div><dt>Sweep near right</dt><dd id="scan-nr">—</dd></div>
-          <div><dt>Sweep far right</dt><dd id="scan-fr">—</dd></div>
+          <div><dt>Obstacle width</dt><dd id="obs-width">—</dd></div>
+          <div><dt>Width left / right of centre</dt><dd id="obs-halves">—</dd></div>
           <div><dt>Decision</dt><dd id="scan-side">—</dd></div>
           <div><dt>Last return leg</dt><dd id="byp-result">—</dd></div>
         </dl>
@@ -97,13 +100,20 @@
           <div><dt>Line error</dt><dd id="err">—</dd></div>
           <div><dt>Line mode</dt><dd id="mode">—</dd></div>
           <div><dt>Motor</dt><dd id="motor">—</dd></div>
-          <div><dt>Ultrasonic</dt><dd id="ultra">—</dd></div>
         </dl>
       </section>
 
-      <section class="card wide">
-        <h2>Last 15 s <small>darkC · darkR · steer</small></h2>
-        <canvas id="trace" height="180"></canvas>
+      <section class="card">
+        <h2>IMU / terrain</h2>
+        <dl class="kv">
+          <div><dt>IMU state</dt><dd id="imu-state">—</dd></div>
+          <div><dt>Calibrated</dt><dd id="imu-cal">—</dd></div>
+          <div><dt>Lean height now</dt><dd id="imu-lean">—</dd></div>
+          <div><dt>Last hump</dt><dd id="imu-last">—</dd></div>
+          <div><dt>Tallest hump</dt><dd id="imu-max">—</dd></div>
+          <div><dt>Humps measured</dt><dd id="imu-humps">—</dd></div>
+          <div><dt>Lift detector</dt><dd id="imu-rise">—</dd></div>
+        </dl>
       </section>
 
       <section class="card wide">
