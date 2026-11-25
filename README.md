@@ -8,10 +8,11 @@ The aim of this project is to build an autonomous line-following car on micro T-
 | Barcodes | Reads Code 39 barcodes (`*A*` to `*Z*`, in either direction) with a third IR sensor and stores the letter |
 | Junctions | At the next cross junction it carries out the move mapped to the stored letter: U-turn, left, right or straight on. The letter-to-move mapping is sent from the dashboard over MQTT (retained), not hard-coded |
 | Humps | The IMU measures the height of each hump and keeps the tallest |
-| Lift detection | If the car is picked up, the IMU detects it and the car stops |
+| Lift detection | If the car is picked up quickly or turned upside down, the IMU detects it and the car stops |
 | Obstacles | An ultrasonic sensor on a servo stops the car at 30 cm, sweeps ±55° in 5° steps, measures the obstacle's width, picks the side with room and drives round it on a 45° dog-leg, then finds the line again |
 | Dashboard | A web page shows live telemetry, line, barcode, obstacle and IMU data, and has Start/Stop and the junction-mapping controls |
 
+Requirements (FR and NFR) and how the code meets them: [Requirements](#requirements).
 Message formats and interfaces: [TEAM.md](TEAM.md), section 7, and
 [testing/dashboard/CAR_DASHBOARD.md](testing/dashboard/CAR_DASHBOARD.md).
 Videos of every test case: [videos/README.md](videos/README.md).
@@ -20,7 +21,7 @@ Videos of every test case: [videos/README.md](videos/README.md).
 
 | Layer | What we use |
 |---|---|
-| Language | C (the requirements ask for C99 and Barr-C; the build uses `gnu11` and currently compiles without warnings) |
+| Language | C, built as `gnu11`; our code compiles with `-Wall -Wextra -Werror` (NFR-01). BARR-C:2018 (NFR-02): see [Requirements](#requirements) |
 | RTOS | **micro T-Kernel 3.0**, dual-core RP2040 port |
 | SDK | Raspberry Pi **Pico C SDK** 2.2.0 or newer (USB and WiFi driver source; 2.3.0 also builds without warnings) |
 | Compiler | Arm GNU Toolchain, `arm-none-eabi-gcc` (tested with 15.3.Rel1) |
@@ -57,6 +58,58 @@ Each subsystem has its own folder and its own test log in `testing/<folder>/TEST
 Only the owner edits their folder. Shared files (`app_program/app.h`, `app_if.h`,
 `app_main.c`, `config/`, `TEAM.md`) are changed by agreement of the team.
 Priorities, interfaces and the full task list are in [TEAM.md](TEAM.md).
+
+## Requirements
+
+These are the functional (FR) and non-functional (NFR) requirements as revised for the
+Tribunal 2 pre-submission (23 Nov 2026), checked against the code on `main`.
+**Met** = the code does what the requirement says; **Differs** = the code does it
+another way (see the note); **Test** = a measured target, see the owner's
+`testing/<folder>/TEST_LOG.md`.
+
+### Functional requirements
+
+| ID | Requirement (short) | Owner | Status | Note |
+|---|---|---|---|---|
+| FR-01 | Follow the line between the two line IR sensors, PD steering every 10 ms | Vania | Met | |
+| FR-02 | Decode Code 39 A–Z both ways; back up 50 mm, read at 18 mm/s, retry once in reverse | Vania, Felix | Met | |
+| FR-03 | Store the letter; at the next cross junction do its mapped move; none or unmapped = forward | Vania, Felix | Met | Mapping sent over MQTT; a letter for straight can be set too |
+| FR-04 | Detect each hump under one drive wheel | Sook Yee | Met | |
+| FR-05 | Hump height from roll (track × tan roll), keep the tallest, slow to 18 mm/s on a hump | Sook Yee | Met | |
+| FR-06 | Lifted and upside down (100 ms) → all motors stop | Sook Yee | Met | Also stops when picked up quickly (upward speed about 0.4 m/s) |
+| FR-07 | Detect an obstacle at ≤ 30 cm (two readings in a row) and stop | Felix | Met | |
+| FR-08 | Sweep seven angles (±70°, ±45°, ±22.5°, 0°) and choose a side | Felix | Differs | 23 readings in 5° steps over ±55°; side and width from the obstacle's edges (LordPercivalXII method, calibrated); first "no way round" creeps 10 cm closer |
+| FR-09 | 45° dog-leg; straight leg ends 3 readings after nothing within 35 cm, then 25 cm | Felix, Dave | Differs | Straight leg ends after 1.5 s with nothing within 35 cm; outward diagonal 10 cm shorter than the formula (tuned on the floor); 55° is commanded for each 45° turn |
+| FR-10 | Turn in, stop on the second IR sensor, 10 cm on, turn along the line, creep to re-find it | Felix, Vania | Met | |
+| FR-11 | Wheel speed PID: 78 mm/s line, 18 mm/s barcode, 65 mm/s bypass | Dave | Met | |
+| FR-12 | Distance, speed and heading from the encoders | Dave | Met | |
+| FR-13 | 90°, 180° and bypass turns by encoder count | Dave | Met | |
+| FR-14 | WiFi and MQTT with back-off, never blocking a control task | Jun Kai | Met | Back-off 1 to 16 s |
+| FR-15 | Live state to the dashboard; commands on a QoS 1 topic | Jun Kai | Met | |
+| FR-16 | 11-byte telemetry every 500 ms (QoS 0), 24-byte debug frame every 100 ms | Jun Kai | Differs | Debug frame is now 17 bytes (unused sweep fields removed); an 8-byte IMU frame is added |
+| FR-17 | Start with the GP20 button | Dave, Felix | Met | Start/Stop from the dashboard too |
+| FR-18 | Heartbeat while no telemetry is sent | Jun Kai | Met | |
+| FR-19 | IMU or WiFi failure: keep driving; line lost, encoder, scan fault or line not re-found in 5 s: stop, wait in IDLE | All | Met | |
+
+### Non-functional requirements
+
+| ID | Requirement (short) | Status | Note |
+|---|---|---|---|
+| NFR-01 | Builds with no warnings under `-Wall -Wextra -Werror` | Met | Every file in `app_program/` is compiled with these flags (`APP_WARN` in `build_make/mtkernel_3/app_program/subdir.mk`); the kernel and SDK keep their own flags. The PC tests use them too |
+| NFR-02 | BARR-C:2018 | Differs | Only `line_barcode` follows it (6 findings from `testing/line_barcode/check_style.py`); the other four folders use the kernel's style (tabs, `INT`/`UB` types) |
+| NFR-03 | Line task every 10 ms | Met | |
+| NFR-04 | IR sampler at 1 kHz | Met | 1 ms cyclic handler |
+| NFR-05 | Barcodes decode in ≥ 95 % of passes | Test | |
+| NFR-06 | IMU every 10 ms, even when the sensor fails | Met | |
+| NFR-07 | Hump height ±5 mm | Test | |
+| NFR-08 | Obstacles within 30 cm detected in ≥ 95 % of runs | Test | |
+| NFR-09 | Never touch the obstacle; planned sideways gap ≥ 4 cm | Differs | The 10 cm diagonal trim leaves a planned gap below 4 cm on paper; the real gap depends on the turns, so measure it on the floor |
+| NFR-10 | Bypass within 30 s; a slower one is recorded as late | Met | `BYPASS_TARGET_MS` |
+| NFR-11 | Line re-found after a bypass in ≥ 95 % of 20 runs | Test | |
+| NFR-12 | Telemetry every 500 ms; WiFi loss never stops the car | Met | |
+| NFR-13 | Minimum-bit data: bit-packed frames, 1-byte command, 10-bit line readings, one 8-bit fault mask | Met | |
+| NFR-14 | Motor PID every 10 ms | Met | |
+| NFR-15 | 90° and 180° turns within ±5° | Test | |
 
 ## Repository layout
 
@@ -137,8 +190,9 @@ the dashboard, use the dashboard build in step 4.
 | `CRASH_REPORT` | `0`, `1` | also copies the console to UART0 (uses GP0/GP1) |
 
 Options go after `make` and are part of the file name, for example
-`mtk3pico_smp0_usb_cdc_wifi_test.uf2`. `make CONSOLE=uart WIFI=none -j8` needs no Pico SDK,
-so it is a quick way to check that the code compiles.
+`mtk3pico_smp0_usb_cdc_wifi_test.uf2`. `make CONSOLE=uart WIFI=none -j8` compiles every file
+without the Pico SDK, a quick check for compile errors, but it does not link: the NeoPixel
+driver (`drv_rgb.c`) needs the SDK's PIO functions.
 
 ### 3. Flash and watch the output
 
@@ -189,7 +243,8 @@ subsystems in `testing/integration/` and `testing/system/`. How to write a test 
 
 ## Working on the project
 
-* Work in your own subsystem folder and keep the build free of compiler warnings (NFR-01).
+* Work in your own subsystem folder. Our code builds with `-Wall -Wextra -Werror`, so any
+  new warning stops the build (NFR-01).
 * Claim pins and interfaces in [TEAM.md](TEAM.md) before you use them. Avoid GP23, GP24,
   GP25 and GP29 (Pico W radio). GP0 and GP1 are free unless you build with `CRASH_REPORT=1`.
 * Commit small changes, pull before you push, and ask the owner before editing someone

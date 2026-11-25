@@ -17,6 +17,10 @@
 #ifndef IMU_TEST_HUMP_H
 #define IMU_TEST_HUMP_H
 
+/* The helpers are static inline: a file that includes this header but
+   uses only some of them (or none, in a build without the motion tests)
+   then compiles with no unused-function warning (NFR-01). */
+
 #define TH_WHEELBASE_MM		CAR_WHEELBASE_MM
 #define TH_STEP_UM		1200		/* 120 mm/s */
 #define TH_TILT_SIN		1144		/* sin(2 deg), Q15 */
@@ -40,14 +44,14 @@ typedef struct {
 
 static UW th_seed = 12345U;
 
-static INT th_noise(INT amp)
+static inline INT th_noise(INT amp)
 {
 	th_seed = (th_seed * 1103515245U) + 12345U;
 	return (INT)((th_seed >> 16) % (UW)((2 * amp) + 1)) - amp;
 }
 
 /* surface height in um at x um */
-static INT th_y_um(const TH_HUMP *h, INT x_um)
+static inline INT th_y_um(const TH_HUMP *h, INT x_um)
 {
 	INT u = x_um - (h->x0_mm * 1000);
 	INT r = h->ramp_mm * 1000;
@@ -70,7 +74,7 @@ static INT th_y_um(const TH_HUMP *h, INT x_um)
    tan(roll) a = y / T and nose-down slope c = y / (2 b); then
    side = a / sqrt(1+a^2), up = 1 / N, fwd = -c / (N sqrt(1+a^2)),
    N = sqrt(1 + a^2 + c^2). */
-static void th_one_wheel(INT y_um, INT *fwd, INT *side, INT *up)
+static inline void th_one_wheel(INT y_um, INT *fwd, INT *side, INT *up)
 {
 	INT a = (y_um * 16384) / (CAR_TRACK_MM * 500);		/* Q15 */
 	INT c = (y_um * 16384) / (TH_WHEELBASE_MM * 1000);	/* Q15 */
@@ -83,7 +87,7 @@ static void th_one_wheel(INT y_um, INT *fwd, INT *side, INT *up)
 }
 
 /* What the sensors see with the drive wheels at x_um (previous at x_prev) */
-static void th_sense(const TH_HUMP *h, INT x_um, INT x_prev, IMU_VEC *a, INT *ds_um, INT noise)
+static inline void th_sense(const TH_HUMP *h, INT x_um, INT x_prev, IMU_VEC *a, INT *ds_um, INT noise)
 {
 	INT fwd, side, up, f2, u2, ddx, ddy;
 
@@ -119,7 +123,7 @@ static void th_sense(const TH_HUMP *h, INT x_um, INT x_prev, IMU_VEC *a, INT *ds
 
 /* Feed n samples of one acceleration, car standing still; returns how many
    of them reported IMU_EV_LIFTED */
-static INT th_hold(IMU_LOGIC *l, INT fwd, INT side, INT up, INT n)
+static inline INT th_hold(IMU_LOGIC *l, INT fwd, INT side, INT up, INT n)
 {
 	IMU_VEC a;
 	INT k, lifts = 0;
@@ -136,7 +140,7 @@ static INT th_hold(IMU_LOGIC *l, INT fwd, INT side, INT up, INT n)
 }
 
 /* Calibrate: 1.2 s standing still */
-static void th_calibrate(IMU_LOGIC *l)
+static inline void th_calibrate(IMU_LOGIC *l)
 {
 	TH_HUMP flat = { 0, 0, 1, 0, 0 };
 	IMU_VEC a;
@@ -151,7 +155,7 @@ static void th_calibrate(IMU_LOGIC *l)
 /* Drive from x_from to x_to mm.  spike_at_mm >= 0 adds a spike of spike_mg
    on the forward axis for spike_n samples there.  turn_at_mm >= 0: the car
    is turning (allowed = FALSE) from there on. */
-static TH_OUT th_drive(IMU_LOGIC *l, const TH_HUMP *h, INT x_from, INT x_to,
+static inline TH_OUT th_drive(IMU_LOGIC *l, const TH_HUMP *h, INT x_from, INT x_to,
 		       INT spike_at_mm, INT spike_mg, INT spike_n, INT turn_at_mm)
 {
 	TH_OUT o = { 0, 0, 0, 0 };
@@ -187,7 +191,7 @@ static TH_OUT th_drive(IMU_LOGIC *l, const TH_HUMP *h, INT x_from, INT x_to,
 	return o;
 }
 
-static INT th_abs(INT v)
+static inline INT th_abs(INT v)
 {
 	return (v < 0) ? -v : v;
 }
