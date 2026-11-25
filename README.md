@@ -62,10 +62,10 @@ Priorities, interfaces and the full task list are in [TEAM.md](TEAM.md).
 ## Requirements
 
 These are the functional (FR) and non-functional (NFR) requirements as revised for the
-Tribunal 2 pre-submission (23 Nov 2026), checked against the code on `main`.
-**Met** = the code does what the requirement says; **Differs** = the code does it
-another way (see the note); **Test** = a measured target, see the owner's
-`testing/<folder>/TEST_LOG.md`.
+Tribunal 2 pre-submission (23 Nov 2026). Some requirements has been partially changed to
+improve functionality. In the table, **Met** = the code does what the requirement says;
+**Differs** = the code does it another way (see the note); **Test** = a measured target,
+see the owner's `testing/<folder>/TEST_LOG.md`.
 
 ### Functional requirements
 
@@ -240,17 +240,3 @@ cd build_make && make TEST=1 -j8   # on-target tests: read the console for [TEST
 Record every test run in the owner's `testing/<folder>/TEST_LOG.md`, and tests that cross
 subsystems in `testing/integration/` and `testing/system/`. How to write a test is in
 [testing/README.md](testing/README.md).
-
-## Working on the project
-
-* Work in your own subsystem folder. Our code builds with `-Wall -Wextra -Werror`, so any
-  new warning stops the build (NFR-01).
-* Claim pins and interfaces in [TEAM.md](TEAM.md) before you use them. Avoid GP23, GP24,
-  GP25 and GP29 (Pico W radio). GP0 and GP1 are free unless you build with `CRASH_REPORT=1`.
-* Commit small changes, pull before you push, and ask the owner before editing someone
-  else's folder.
-* Task priorities are 12 to 19 (one level per task) because the kernel uses 1 to 4. Do not change them without
-  agreement from the team.
-
----
-

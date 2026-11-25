@@ -9,26 +9,26 @@ by agreement of the team.
 
 ## 1. Members and subsystems
 
-| Subsystem | Owner | Student ID | GitHub | Code | Tests |
-|---|---|---|---|---|---|
-| Motor control: PID speed loop, wheel encoders, start button interrupt | Tan Kun Yi Dave | 2502730 | *(add)* | `app_program/motor_control/` | `testing/motor_control/` |
-| Line following and barcode: two line IR sensors and the barcode IR sensor, 1 kHz sampler, Code 39 decoding (A–Z, both directions), cross-junction detection | Vania Teng | 2503206 | *(add)* | `app_program/line_barcode/` | `testing/line_barcode/` |
-| IMU and terrain: hump height, tallest hump, lift detection | Lau Sook Yee | 2503178 | *(add)* | `app_program/imu_terrain/` | `testing/imu_terrain/` |
-| Online dashboard: telemetry task, WiFi, MQTT, compact binary telemetry, web page, Start/Stop and junction mapping received over MQTT | Wong Jun Kai | 2500258 | *(add)* | `app_program/dashboard/` | `testing/dashboard/` |
-| Mission state, stored barcode letter carried out at cross junctions, obstacle scanning, width and avoidance, integration | Felix Koh | 2500256 | *(add)* | `app_program/mission_obstacle/` | `testing/mission_obstacle/` |
+| Subsystem | Owner | Student ID | Code | Tests |
+|---|---|---|---|---|
+| Motor control: PID speed loop, wheel encoders, start button interrupt | Tan Kun Yi Dave | 2502730 | `app_program/motor_control/` | `testing/motor_control/` |
+| Line following and barcode: two line IR sensors and the barcode IR sensor, 1 kHz sampler, Code 39 decoding (A–Z, both directions), cross-junction detection | Vania Teng | 2503206 | `app_program/line_barcode/` | `testing/line_barcode/` |
+| IMU and terrain: hump height, tallest hump, lift detection | Lau Sook Yee | 2503178 | `app_program/imu_terrain/` | `testing/imu_terrain/` |
+| Online dashboard: telemetry task, WiFi, MQTT, compact binary telemetry, web page, Start/Stop and junction mapping received over MQTT | Wong Jun Kai | 2500258 | `app_program/dashboard/` | `testing/dashboard/` |
+| Mission state, stored barcode letter carried out at cross junctions, obstacle scanning, width and avoidance, integration | Felix Koh | 2500256 | `app_program/mission_obstacle/` | `testing/mission_obstacle/` |
 
 Test IDs in the logs use short codes: S1 = motor_control, S2 = line_barcode,
 S3 = imu_terrain, S4 = dashboard, S5 = mission_obstacle.
 
 ### Responsibilities
 
-| Owner | Requirements | Task(s) and priority | Statechart | Assumptions | Also responsible for (report) |
-|---|---|---|---|---|---|
-| Dave | FR-11, FR-12, FR-13, NFR-14, NFR-15; FR-17 (button interrupt); the turns of FR-03 and FR-09 | `motor_task` 12 | 6.3 Motor | A5 battery, A6 wheel slip | motor pin layout, PID/control task, motion statechart |
-| Vania | FR-01, FR-02, FR-03 (decode A–Z in both directions; cross-junction detection), FR-10 (line found), NFR-03, NFR-04, NFR-05, NFR-13 (10-bit line readings) | `line_task` 13, `barcode_task` 17 | 6.1 Line and barcode | A3 IR contrast | line/barcode requirements, sensor calibration, navigation interface |
-| Sook Yee | FR-04, FR-05, FR-06, NFR-06, NFR-07 | `imu_task` 16 | 6.2 IMU | A4 hump vs vibration | IMU interface, terrain requirements, terrain statechart |
-| Jun Kai | FR-14, FR-15, FR-16, FR-18, NFR-12, NFR-13 (frames and command) | `dashboard_task` 19, `telemetry_task` 18 | 6.5 Dashboard | A7, A8 WiFi / MQTT | communication requirements, telemetry interface, WiFi task |
-| Felix | FR-03 (store the decoded character, carry out its mapped movement at the next cross junction), FR-07, FR-08, FR-09, FR-10, FR-17 (Start/Stop handling), FR-19, NFR-08..NFR-11, NFR-13 (fault bitmask) | `mission_task` 14, `scan_task` 15 | 5 System, 6.4 Obstacle scan | A1 ultrasonic range, A2 shared priority | system architecture, task interaction diagram, obstacle scanning statechart |
+| Owner | Requirements | Task(s) and priority | Assumptions | Also responsible for (report) |
+|---|---|---|---|---|
+| Dave | FR-11, FR-12, FR-13, NFR-14, NFR-15; FR-17 (button interrupt); the turns of FR-03 and FR-09 | `motor_task` 12 | A5 battery, A6 wheel slip | motor pin layout, PID/control task, motion statechart |
+| Vania | FR-01, FR-02, FR-03 (decode A–Z in both directions; cross-junction detection), FR-10 (line found), NFR-03, NFR-04, NFR-05, NFR-13 (10-bit line readings) | `line_task` 13, `barcode_task` 17 | A3 IR contrast | line/barcode requirements, sensor calibration, navigation interface |
+| Sook Yee | FR-04, FR-05, FR-06, NFR-06, NFR-07 | `imu_task` 16 | A4 hump vs vibration | IMU interface, terrain requirements, terrain statechart |
+| Jun Kai | FR-14, FR-15, FR-16, FR-18, NFR-12, NFR-13 (frames and command) | `dashboard_task` 19, `telemetry_task` 18 | A7, A8 WiFi / MQTT | communication requirements, telemetry interface, WiFi task |
+| Felix | FR-03 (store the decoded character, carry out its mapped movement at the next cross junction), FR-07, FR-08, FR-09, FR-10, FR-17 (Start/Stop handling), FR-19, NFR-08..NFR-11, NFR-13 (fault bitmask) | `mission_task` 14, `scan_task` 15 | A1 ultrasonic range, A2 shared priority | system architecture, task interaction diagram, obstacle scanning statechart |
 
 ## 2. Pins
 
@@ -133,19 +133,16 @@ first (2026-11-23): an obstacle ahead, then humps and lifts, then barcode decodi
 whose edges are already timestamped and buffered (64 edges in `mbf_edge`), so a short
 wait costs no accuracy. The Week 6 order of the ranks is unchanged.
 
-| Review rank | Task | Subsystem | Priority | Trigger | Period | WCET | Core |
-|---|---|---|---|---|---|---|---|
-| Highest (1) | `motor_task` | Dave | 12 | cyclic 10 ms | 10 ms | *not measured* | any |
-| High (2) | `line_task` | Vania | 13 | cyclic 10 ms | 10 ms | *not measured* | any |
-| Medium (3) | `mission_task` | Felix | 14 | 5 ms poll of its inputs | 5 ms | *not measured* | any |
-| Medium (4) | `scan_task` | Felix | 15 | 60 ms ping timer / commands; blocks on the echo interrupt (≤ 30 ms) | 60 ms | *not measured* | any |
-| Medium (4) | `imu_task` | Sook Yee | 16 | cyclic 10 ms | 10 ms | *not measured* | any |
-| Medium (4) | `barcode_task` | Vania | 17 | blocks on `mbf_edge` | event (a capture ends after max(2.5 s, 4 × its longest element), at most 6 s, of quiet) | *not measured* | any |
-| Low (5) | `telemetry_task` | Jun Kai | 18 | 500 ms | 500 ms | *not measured* | any |
-| Low (5) | `dashboard_task` | Jun Kai | 19 | 100 ms | 100 ms | *not measured* | any |
-
-WCET (worst-case execution time) is measured on the board by each owner and filled
-in here; record the method and the raw numbers in your `TEST_LOG.md`.
+| Review rank | Task | Subsystem | Priority | Trigger | Period | Core |
+|---|---|---|---|---|---|---|
+| Highest (1) | `motor_task` | Dave | 12 | cyclic 10 ms | 10 ms | any |
+| High (2) | `line_task` | Vania | 13 | cyclic 10 ms | 10 ms | any |
+| Medium (3) | `mission_task` | Felix | 14 | 5 ms poll of its inputs | 5 ms | any |
+| Medium (4) | `scan_task` | Felix | 15 | 60 ms ping timer / commands; blocks on the echo interrupt (≤ 30 ms) | 60 ms | any |
+| Medium (4) | `imu_task` | Sook Yee | 16 | cyclic 10 ms | 10 ms | any |
+| Medium (4) | `barcode_task` | Vania | 17 | blocks on `mbf_edge` | event (a capture ends after max(2.5 s, 4 × its longest element), at most 6 s, of quiet) | any |
+| Low (5) | `telemetry_task` | Jun Kai | 18 | 500 ms | 500 ms | any |
+| Low (5) | `dashboard_task` | Jun Kai | 19 | 100 ms | 100 ms | any |
 
 Handlers (not tasks): `ir_sampler_isr` 1 ms, and the cyclic wake-up handlers for
 Motor, Line and IMU. Interrupt: `gpio_bank0_handler`. The system tick is 1 ms
