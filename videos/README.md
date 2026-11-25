@@ -38,7 +38,6 @@ Newest at the bottom. Never delete a row.
 
 | Date | Subsystem | Test ID / demo | Link | Notes |
 |---|---|---|---|---|
-| YYYY-MM-DD | S1 | S1-U03 | <https://youtu.be/...> | LED blinks at 2 Hz |
 | 2026-11-25 | S3 | Detect and record hump | <https://youtu.be/wJ2n_ZApeKov> | Hump detected, height recorded |
 | 2026-11-25 | S2, S3 | Line tracking full run, then lift and stop | <https://youtu.be/qosbVwFpzFA> | Full run on the line; car lifted, motors stop |
 | 2026-11-25 | S5 | Obstacle detection, width and avoidance | <https://youtu.be/EHOQbQYNOlM> | Stops at the obstacle, width recorded, goes round and finds the line |
