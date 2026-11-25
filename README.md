@@ -96,7 +96,7 @@ see the owner's `testing/<folder>/TEST_LOG.md`.
 | ID | Requirement (short) | Status | Note |
 |---|---|---|---|
 | NFR-01 | Builds with no warnings under `-Wall -Wextra -Werror` | Met | Every file in `app_program/` is compiled with these flags (`APP_WARN` in `build_make/mtkernel_3/app_program/subdir.mk`); the kernel and SDK keep their own flags. The PC tests use them too |
-| NFR-02 | BARR-C:2018 | Differs | Only `line_barcode` follows it (6 findings from `testing/line_barcode/check_style.py`); the other four folders use the kernel's style (tabs, `INT`/`UB` types) |
+| NFR-02 | BARR-C:2018 | Differs | Every file has the BARR-C layout: spaces, no tabs, a Doxygen `@file` header and the end-of-file footer. `line_barcode` passes `testing/line_barcode/check_style.py` (6 findings); the other four folders still have about 900, mostly lines over 80 columns and the constant on the right of `==`. They keep the kernel's `INT`/`UB` types, which its calls use |
 | NFR-03 | Line task every 10 ms | Met | |
 | NFR-04 | IR sampler at 1 kHz | Met | 1 ms cyclic handler |
 | NFR-05 | Barcodes decode in ≥ 95 % of passes | Test | |

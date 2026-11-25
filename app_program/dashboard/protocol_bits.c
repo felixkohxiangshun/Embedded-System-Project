@@ -1,3 +1,9 @@
+/**
+ * @file protocol_bits.c
+ * @brief Bit packing, least significant bit first, for the minimum-bit
+ *        frames.  See protocol_bits.h.
+ */
+
 #include "protocol_bits.h"
 
 unsigned int protocol_bits_required(uint32_t maximum)
@@ -57,3 +63,5 @@ int protocol_bits_get(const uint8_t *data, uint16_t bytes, uint32_t *cursor,
     *cursor += bits;
     return 1;
 }
+
+/*** end of file ***/

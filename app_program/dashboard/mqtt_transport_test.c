@@ -1,3 +1,8 @@
+/**
+ * @file mqtt_transport_test.c
+ * @brief MQTT transport test (built only with DASH_MQTT_TRANSPORT_TEST).
+ */
+
 #if DASH_MQTT_TRANSPORT_TEST
 
 #include "lwip/apps/mqtt.h"
@@ -172,3 +177,5 @@ void mqtt_utk_start(void)
 }
 
 #endif
+
+/*** end of file ***/

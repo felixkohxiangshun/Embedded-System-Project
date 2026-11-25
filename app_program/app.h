@@ -1,21 +1,21 @@
-/*
- *	app.h
- *	Definitions shared by the whole team.  Changed only by team agreement.
+/**
+ * @file app.h
+ *      Definitions shared by the whole team.  Changed only by team agreement.
  *
- *	Anything that belongs to ONE subsystem goes in that subsystem's own
- *	header instead (app_program/<subsystem>/<subsystem>.h).
+ *      Anything that belongs to ONE subsystem goes in that subsystem's own
+ *      header instead (app_program/<subsystem>/<subsystem>.h).
  *
- *	Group 11 robo car, micro T-Kernel 3.0 on Raspberry Pi Pico W + Robo Pico.
- *	Design reference: Week 6 Design Review (final).  Ownership: TEAM.md.
+ *      Group 11 robo car, micro T-Kernel 3.0 on Raspberry Pi Pico W + Robo Pico.
+ *      Design reference: Week 6 Design Review (final).  Ownership: TEAM.md.
  */
 
 #ifndef APP_H
 #define APP_H
 
-#include <tk/tkernel.h>		/* micro T-Kernel API (tk_xxx_yyy) */
-#include <tm/tmonitor.h>	/* T-Monitor API: tm_printf() console output */
-#include <bsp/libbsp.h>		/* Board helpers: gpio_set_pin/val, pwm_... */
-#include <sys/machine.h>	/* in_w/out_w/set_w/clr_w and RP2040 registers */
+#include <tk/tkernel.h>         /* micro T-Kernel API (tk_xxx_yyy) */
+#include <tm/tmonitor.h>        /* T-Monitor API: tm_printf() console output */
+#include <bsp/libbsp.h>         /* Board helpers: gpio_set_pin/val, pwm_... */
+#include <sys/machine.h>        /* in_w/out_w/set_w/clr_w and RP2040 registers */
 
 /* ---------------------------------------------------------------------
  *  Pins (design review section 2, "Hardware Integration Pin Layout").
@@ -23,25 +23,25 @@
  *  GP0/GP1 stay free (they are UART0 only with "make CRASH_REPORT=1").
  *  Every pin is claimed in TEAM.md section 2.
  * --------------------------------------------------------------------- */
-#define PIN_ENC_LEFT_A		7	/* quadrature encoder, left motor  */
-#define PIN_ENC_LEFT_B		6
-#define PIN_ENC_RIGHT_A		2	/* quadrature encoder, right motor */
-#define PIN_ENC_RIGHT_B		3
-#define PIN_MOT_LEFT_FWD	8	/* PWM slice 4 channel A */
-#define PIN_MOT_LEFT_BWD	9	/* PWM slice 4 channel B */
-#define PIN_MOT_RIGHT_FWD	11	/* PWM slice 5 channel B */
-#define PIN_MOT_RIGHT_BWD	10	/* PWM slice 5 channel A */
-#define PIN_SERVO_PWM		12	/* PWM slice 6 channel A */
-#define PIN_IMU_SDA		4	/* I2C0 (set in i2c_cnf_sysdep.h) */
-#define PIN_IMU_SCL		5
-#define PIN_ULTRA_ECHO		16
-#define PIN_ULTRA_TRIG		17
-#define PIN_LED_STATUS		18	/* Robo Pico NeoPixel RGB LEDs (drv_rgb.c) */
-#define PIN_BTN_START		20	/* active low */
-#define PIN_BTN_2		21	/* unused so far */
-#define PIN_IR_RIGHT		26	/* ADC0, right of the line sensor pair */
-#define PIN_IR_CENTER		27	/* ADC1, left of the line sensor pair */
-#define PIN_IR_BARCODE		28	/* ADC2, barcode sensor, left of the pair */
+#define PIN_ENC_LEFT_A          7       /* quadrature encoder, left motor  */
+#define PIN_ENC_LEFT_B          6
+#define PIN_ENC_RIGHT_A         2       /* quadrature encoder, right motor */
+#define PIN_ENC_RIGHT_B         3
+#define PIN_MOT_LEFT_FWD        8       /* PWM slice 4 channel A */
+#define PIN_MOT_LEFT_BWD        9       /* PWM slice 4 channel B */
+#define PIN_MOT_RIGHT_FWD       11      /* PWM slice 5 channel B */
+#define PIN_MOT_RIGHT_BWD       10      /* PWM slice 5 channel A */
+#define PIN_SERVO_PWM           12      /* PWM slice 6 channel A */
+#define PIN_IMU_SDA             4       /* I2C0 (set in i2c_cnf_sysdep.h) */
+#define PIN_IMU_SCL             5
+#define PIN_ULTRA_ECHO          16
+#define PIN_ULTRA_TRIG          17
+#define PIN_LED_STATUS          18      /* Robo Pico NeoPixel RGB LEDs (drv_rgb.c) */
+#define PIN_BTN_START           20      /* active low */
+#define PIN_BTN_2               21      /* unused so far */
+#define PIN_IR_RIGHT            26      /* ADC0, right of the line sensor pair */
+#define PIN_IR_CENTER           27      /* ADC1, left of the line sensor pair */
+#define PIN_IR_BARCODE          28      /* ADC2, barcode sensor, left of the pair */
 
 /* ---------------------------------------------------------------------
  *  Task priorities: 1 is the highest; the kernel's USB console (3) and
@@ -68,16 +68,16 @@
  *  briefly and blocks, so none starves the others.  TEAM.md section 4 has
  *  the full table.
  * --------------------------------------------------------------------- */
-#define PRI_MOTOR		12
-#define PRI_LINE		13
-#define PRI_MISSION		14
-#define PRI_SCAN		15
-#define PRI_IMU			16
-#define PRI_BARCODE		17
-#define PRI_TELEMETRY		18
-#define PRI_DASHBOARD		19
+#define PRI_MOTOR               12
+#define PRI_LINE                13
+#define PRI_MISSION             14
+#define PRI_SCAN                15
+#define PRI_IMU                 16
+#define PRI_BARCODE             17
+#define PRI_TELEMETRY           18
+#define PRI_DASHBOARD           19
 
-#define TASK_STACK_SIZE		2048	/* bytes; tm_printf needs ~1 KB */
+#define TASK_STACK_SIZE         2048    /* bytes; tm_printf needs ~1 KB */
 
 /* Create and start a task.  prc = TP_PRC1 (core 0), TP_PRC2 (core 1), or
    0 for "any core".  Defined in app_main.c. */
@@ -122,20 +122,20 @@ IMPORT void mission_obstacle_test(void);
    function for the ultrasonic ECHO pin (GP16); it is defined in
    mission_obstacle/drv_ultra.c.  Runs in interrupt context: no blocking
    calls.  now_us = APP_NOW_US() taken at handler entry; edges = ECHO_EDGE_xxx. */
-#define ECHO_EDGE_RISE		0x1
-#define ECHO_EDGE_FALL		0x2
+#define ECHO_EDGE_RISE          0x1
+#define ECHO_EDGE_FALL          0x2
 IMPORT void ultra_echo_isr(UW now_us, UW edges);
 /* Barcode DO (GP28) edge, from the same bank-0 handler (line_barcode/ir_driver.c) */
 IMPORT void lb_bc_gpio_isr(UW now_us);
 
 /* Print a readable message if a kernel call failed (negative error code) */
-#define CHECK(er, what)							\
-	do {								\
-		INT check_er_ = (INT)(er);	/* evaluate once */	\
-		if (check_er_ < E_OK) {					\
-			tm_printf((UB*)"ERROR %s: %d\n", (what), check_er_); \
-		}							\
-	} while (0)
+#define CHECK(er, what)                                                 \
+    do {                                                                \
+        INT check_er_ = (INT)(er);      /* evaluate once */     \
+        if (check_er_ < E_OK) {                                 \
+            tm_printf((UB*)"ERROR %s: %d\n", (what), check_er_); \
+        }                                                       \
+    } while (0)
 
 /* Helpers for the IPC objects (defined in app_main.c).  Message buffers are
    created by the subsystem that receives; 'count' messages of 'maxmsz'
@@ -145,26 +145,28 @@ IMPORT ID app_make_flg(void);
 
 /* Send/receive one struct.  A send never blocks (TMO_POL), so it is safe in
    handlers and cannot stall a control loop; a full buffer returns E_TMOUT. */
-#define MBF_SEND(id, m)		tk_snd_mbf((id), (void*)&(m), (INT)sizeof(m), TMO_POL)
-#define MBF_RECV(id, m, tmo)	tk_rcv_mbf((id), (void*)&(m), (tmo))
+#define MBF_SEND(id, m)         tk_snd_mbf((id), (void*)&(m), (INT)sizeof(m), TMO_POL)
+#define MBF_RECV(id, m, tmo)    tk_rcv_mbf((id), (void*)&(m), (tmo))
 
 /* Hardware timer, free running.  NOT 1 MHz on this board: nothing starts
    the watchdog tick that clocks it, so it counts at 23.4 kHz (one count =
    42.7 us; see TIMER_COUNTS_TO_US in mission_obstacle/scan_logic.h).  The
    name is kept; Line, Barcode and the button debounce were tuned on it. */
-#define APP_NOW_US()		((UW)in_w(TIMER_TIMELR))
+#define APP_NOW_US()            ((UW)in_w(TIMER_TIMELR))
 
 /* The kernel releases the PWM block from reset only when it uses PWM for its
    own tick (USE_PTMR=1).  It does not, so every PWM user releases it here.
    Doing it twice is harmless. */
 static inline void app_pwm_unreset(void)
 {
-	clr_w(RESETS_RESET, RESETS_RESET_PWM);
-	while ((in_w(RESETS_RESET_DONE) & RESETS_RESET_PWM) == 0) {
-		;
-	}
+    clr_w(RESETS_RESET, RESETS_RESET_PWM);
+    while ((in_w(RESETS_RESET_DONE) & RESETS_RESET_PWM) == 0) {
+        ;
+    }
 }
 
 #include "app_if.h"
 
 #endif /* APP_H */
+
+/*** end of file ***/

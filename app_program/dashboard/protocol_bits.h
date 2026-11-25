@@ -1,3 +1,8 @@
+/**
+ * @file protocol_bits.h
+ * @brief Bit packing, least significant bit first, for the minimum-bit frames.
+ */
+
 #ifndef PROTOCOL_BITS_H
 #define PROTOCOL_BITS_H
 
@@ -10,3 +15,5 @@ int protocol_bits_get(const uint8_t *data, uint16_t bytes, uint32_t *cursor,
                       uint32_t maximum, uint32_t *value);
 
 #endif
+
+/*** end of file ***/
